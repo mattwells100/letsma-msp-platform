@@ -1,0 +1,92 @@
+# =============================================================================
+# Letsma MSP Platform - build & deploy to Azure (container path)
+# =============================================================================
+# Trigger: every push to `main`.
+# What it does:
+#   1. Builds the Docker image using Azure Container Registry Tasks (the build
+#      happens in Azure, not on the GitHub runner - no local Docker needed
+#      here either, and it's the same command deploy/deploy.sh uses).
+#   2. Tags the image with both the commit SHA (for rollback/audit) and
+#      `latest`.
+#   3. Points the Web App at the new image and restarts it.
+#   4. Polls /healthz until the new revision responds, so a broken deploy
+#      fails the workflow loudly instead of silently leaving the old version
+#      "working" while the new one 500s.
+#
+# Requires (see deploy/setup-github-oidc.sh to create all of these):
+#   Repository secrets:   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#   Repository variables: ACR_NAME, RESOURCE_GROUP, WEBAPP_NAME
+# =============================================================================
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # allows manually re-running a deploy from the Actions tab
+
+permissions:
+  id-token: write   # required for OIDC federated login - do not remove
+  contents: read
+
+concurrency:
+  group: letsma-msp-deploy
+  cancel-in-progress: false   # never cancel a deploy mid-flight
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC - no client secret involved)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build & push image via ACR Tasks
+        run: |
+          az acr build \
+            --registry "${{ vars.ACR_NAME }}" \
+            --image "letsma-msp:${{ github.sha }}" \
+            --image "letsma-msp:latest" \
+            --file Dockerfile .
+
+      - name: Point Web App at the new image
+        run: |
+          az webapp config container set \
+            --resource-group "${{ vars.RESOURCE_GROUP }}" \
+            --name "${{ vars.WEBAPP_NAME }}" \
+            --docker-custom-image-name "${{ vars.ACR_NAME }}.azurecr.io/letsma-msp:${{ github.sha }}"
+
+      - name: Restart Web App
+        run: |
+          az webapp restart \
+            --resource-group "${{ vars.RESOURCE_GROUP }}" \
+            --name "${{ vars.WEBAPP_NAME }}"
+
+      - name: Wait for the app to come back healthy
+        run: |
+          URL="https://${{ vars.WEBAPP_NAME }}.azurewebsites.net/healthz"
+          echo "Polling $URL ..."
+          for i in $(seq 1 20); do
+            if curl -sf "$URL" > /dev/null; then
+              echo "Healthy after $i attempt(s)."
+              exit 0
+            fi
+            echo "Attempt $i: not ready yet, waiting 15s..."
+            sleep 15
+          done
+          echo "ERROR: app did not become healthy within 5 minutes. Check App Service logs:"
+          echo "  az webapp log tail --resource-group ${{ vars.RESOURCE_GROUP }} --name ${{ vars.WEBAPP_NAME }}"
+          exit 1
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "### :white_check_mark: Deployed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${{ vars.ACR_NAME }}.azurecr.io/letsma-msp:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** https://${{ vars.WEBAPP_NAME }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY

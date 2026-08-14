@@ -1,0 +1,26 @@
+# Environment / secrets - never commit real values
+.env
+.env.*
+!.env.example
+.deploy-output.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+venv/
+.venv/
+
+# Local database
+*.db
+*.sqlite3
+
+# Agent local state
+agent/agent_state.json
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/
+*.log

@@ -1,0 +1,54 @@
+# =============================================================================
+# Letsma MSP Platform - pull request checks
+# =============================================================================
+# Trigger: every pull request targeting `main`.
+# Runs fast, no-Azure-access checks so bad code is caught before merge (and
+# therefore before deploy.yml ever ships it). No secrets required.
+# =============================================================================
+name: CI Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install lint tools
+        run: pip install ruff
+
+      - name: Lint (ruff)
+        run: ruff check app/ agent/ --output-format=github
+        continue-on-error: true   # advisory for now - flip to required once the codebase is ruff-clean
+
+      - name: Byte-compile check (catches syntax errors)
+        run: |
+          python -m compileall app agent -q
+          echo "All files compiled successfully."
+
+      - name: Import smoke test
+        # Importing app.main runs Base.metadata.create_all() against the
+        # default sqlite:// DATABASE_URL - this catches broken imports,
+        # model/schema mismatches, and router wiring errors without needing
+        # any Azure credentials or a real Postgres instance.
+        run: |
+          python -c "
+          import app.main
+          print('app.main imported successfully - FastAPI app object:', app.main.app.title)
+          "
+
+      - name: Verify Dockerfile builds
+        run: docker build -t letsma-msp:ci-check .

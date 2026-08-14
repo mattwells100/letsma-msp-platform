@@ -126,7 +126,7 @@ any threshold is breached or the device stops checking in
 msp-app/
 ├── app/
 │   ├── main.py                 # FastAPI app + router registration
-│   ├── config.py                # env-based settings
+│   ├── config.py                # env-based settings (+ optional Key Vault lookup)
 │   ├── database.py, models.py, schemas.py
 │   ├── seed.py                  # demo data generator
 │   ├── routers/                 # customers, tickets, billing, licenses, endpoints,
@@ -136,8 +136,19 @@ msp-app/
 │   ├── templates/                # Jinja2 + Bootstrap portal pages
 │   └── static/style.css          # Letsma navy/orange branding
 ├── agent/monitor_agent.py       # standalone endpoint monitoring agent
-├── docs/ARCHITECTURE.md         # system design, data flow, roadmap
+├── .github/workflows/
+│   ├── ci.yml                    # lint + smoke-test every pull request
+│   └── deploy.yml                # build & deploy to Azure on every push to main
+├── deploy/
+│   ├── deploy.sh                 # one-shot Azure resource provisioning + first deploy
+│   └── setup-github-oidc.sh      # one-shot passwordless GitHub Actions <-> Azure wiring
+├── docs/
+│   ├── ARCHITECTURE.md           # system design, data flow, roadmap
+│   └── DEPLOYMENT.md             # full Azure deployment + CI/CD guide
+├── Dockerfile, .dockerignore     # container image definition (Option A deployment)
+├── startup.sh                    # Gunicorn/Uvicorn startup command (Option B deployment)
 ├── requirements.txt
+├── .gitignore
 └── .env.example
 ```
 
@@ -159,5 +170,13 @@ you should:
 - Store secrets in **Azure Key Vault** instead of a local `.env` file.
 - Add automated backups for the database and the `oauth_tokens` table.
 
-See `docs/ARCHITECTURE.md` for the full system design and a suggested Azure
-deployment topology (App Service + Postgres + Key Vault).
+See `docs/ARCHITECTURE.md` for the full system design, and
+**`docs/DEPLOYMENT.md` for a complete, copy-paste Azure deployment guide**
+(including a one-shot `deploy/deploy.sh` script that provisions App Service,
+PostgreSQL, Container Registry, and Key Vault with Managed Identity wiring).
+
+**CI/CD** is included out of the box: `.github/workflows/ci.yml` lints and
+smoke-tests every pull request, and `.github/workflows/deploy.yml`
+automatically builds and deploys to Azure on every push to `main` using
+passwordless OIDC login (`deploy/setup-github-oidc.sh` sets this up in one
+command). See §3 of `docs/DEPLOYMENT.md` for the one-time setup steps.

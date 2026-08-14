@@ -1,11 +1,45 @@
 """
 Central configuration loader.
-Reads from environment variables (populated via .env by python-dotenv).
+
+Reads from environment variables (populated via .env locally by
+python-dotenv). In Azure, if a KEY_VAULT_URL app setting is present, secret
+values are instead pulled from Azure Key Vault at startup using the App
+Service's managed identity (no credentials stored anywhere) - see
+docs/DEPLOYMENT.md for setup. Any Key Vault secret found simply overrides
+the corresponding environment variable of the same name (with '-' instead
+of '_', since Key Vault secret names can't contain underscores).
 """
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+KEY_VAULT_URL = os.getenv("KEY_VAULT_URL", "")
+
+_SECRET_NAMES = [
+    "APP-SECRET-KEY", "DATABASE-URL", "ADMIN-PASSWORD",
+    "GRAPH-CLIENT-ID", "GRAPH-CLIENT-SECRET", "GRAPH-TENANT-ID",
+    "XERO-CLIENT-ID", "XERO-CLIENT-SECRET",
+    "WHATSAPP-ACCESS-TOKEN", "WHATSAPP-VERIFY-TOKEN",
+    "TEAMS-INCOMING-WEBHOOK-URL", "TEAMS-OUTGOING-WEBHOOK-SECRET",
+    "AGENT-API-KEY",
+]
+
+if KEY_VAULT_URL:
+    try:
+        from azure.identity import DefaultAzureCredential
+        from azure.keyvault.secrets import SecretClient
+
+        _credential = DefaultAzureCredential()
+        _kv_client = SecretClient(vault_url=KEY_VAULT_URL, credential=_credential)
+        for secret_name in _SECRET_NAMES:
+            try:
+                value = _kv_client.get_secret(secret_name).value
+                os.environ[secret_name.replace("-", "_")] = value
+            except Exception:
+                pass  # secret not set in this Key Vault - fall back to env/.env default
+    except Exception as e:
+        print(f"WARNING: Key Vault lookup skipped ({e}). Falling back to environment variables.")
 
 
 class Settings:

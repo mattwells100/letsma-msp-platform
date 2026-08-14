@@ -44,4 +44,9 @@ app.include_router(portal.router)
 
 @app.get("/healthz", tags=["System"])
 def health_check():
-    return {"status": "ok", "app": settings.APP_NAME}
+    db_backend = "unknown"
+    if settings.DATABASE_URL.startswith("postgresql"):
+        db_backend = "postgresql"
+    elif settings.DATABASE_URL.startswith("sqlite"):
+        db_backend = "sqlite"
+    return {"status": "ok", "app": settings.APP_NAME, "database_backend": db_backend}
