@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Letsma MSP{% endblock %}
+{% block content %}
+<h2 class="page-title mb-4">Operations Dashboard</h2>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card p-3">
+            <div class="text-muted small">Active Customers</div>
+            <div class="stat-value">{{ stats.customers }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card p-3">
+            <div class="text-muted small">Open Tickets</div>
+            <div class="stat-value">{{ stats.open_tickets }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card p-3">
+            <div class="text-muted small">Endpoints Online</div>
+            <div class="stat-value">{{ stats.endpoints_online }} / {{ stats.endpoints_total }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card p-3">
+            <div class="text-muted small">Unpaid Invoices</div>
+            <div class="stat-value">{{ stats.unpaid_invoices }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-7">
+        <div class="card stat-card p-3">
+            <h5 class="page-title">Recent Tickets</h5>
+            <table class="table table-sm align-middle">
+                <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Source</th><th>Priority</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for t in recent_tickets %}
+                    <tr onclick="window.location='/tickets/{{ t.id }}'" style="cursor:pointer">
+                        <td>{{ t.ticket_number }}</td>
+                        <td>{{ t.subject }}</td>
+                        <td>{{ t.customer.name }}</td>
+                        <td>{{ t.source.value if t.source.value is defined else t.source }}</td>
+                        <td><span class="badge badge-priority-{{ (t.priority.value if t.priority.value is defined else t.priority)|replace(' ','') }}">{{ t.priority.value if t.priority.value is defined else t.priority }}</span></td>
+                        <td><span class="badge badge-status-{{ (t.status.value if t.status.value is defined else t.status)|replace(' ','') }}">{{ t.status.value if t.status.value is defined else t.status }}</span></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="text-muted">No tickets yet.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="col-md-5">
+        <div class="card stat-card p-3">
+            <h5 class="page-title">Endpoints Needing Attention</h5>
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Host</th><th>Customer</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for e in alerting_endpoints %}
+                    <tr>
+                        <td>{{ e.hostname }}</td>
+                        <td>{{ e.customer.name }}</td>
+                        <td><span class="badge badge-ep-{{ e.status.value if e.status.value is defined else e.status }}">{{ e.status.value if e.status.value is defined else e.status }}</span></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="3" class="text-muted">All endpoints healthy 🎉</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

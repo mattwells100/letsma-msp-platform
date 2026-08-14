@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Customers - Letsma MSP{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="page-title">Customers</h2>
+    <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newCustomerModal">
+        <i class="bi bi-plus-lg"></i> New Customer
+    </button>
+</div>
+
+<div class="card stat-card p-3">
+    <table class="table align-middle">
+        <thead><tr><th>Name</th><th>Account Manager</th><th>Status</th><th>Phone</th><th>Email</th></tr></thead>
+        <tbody>
+        {% for c in customers %}
+            <tr onclick="window.location='/customers/{{ c.id }}'" style="cursor:pointer">
+                <td><strong>{{ c.name }}</strong>{% if c.trading_name %}<div class="small text-muted">{{ c.trading_name }}</div>{% endif %}</td>
+                <td>{{ c.account_manager or '-' }}</td>
+                <td><span class="badge bg-success">{{ c.status }}</span></td>
+                <td>{{ c.phone or '-' }}</td>
+                <td>{{ c.email or '-' }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="5" class="text-muted">No customers yet - add one via the API (POST /api/customers) or the button above.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- New Customer Modal: submits via fetch() to the JSON API -->
+<div class="modal fade" id="newCustomerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">New Customer</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <form id="newCustomerForm">
+          <div class="mb-2"><label class="form-label">Name</label><input class="form-control" name="name" required></div>
+          <div class="mb-2"><label class="form-label">Trading Name</label><input class="form-control" name="trading_name"></div>
+          <div class="mb-2"><label class="form-label">Email</label><input class="form-control" name="email" type="email"></div>
+          <div class="mb-2"><label class="form-label">Phone</label><input class="form-control" name="phone"></div>
+          <div class="mb-2"><label class="form-label">Account Manager</label><input class="form-control" name="account_manager"></div>
+          <div class="mb-2"><label class="form-label">WhatsApp Number (E.164, no +)</label><input class="form-control" name="whatsapp_number" placeholder="447700900123"></div>
+          <div class="mb-2"><label class="form-label">Microsoft 365 Tenant ID</label><input class="form-control" name="m365_tenant_id"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="submitNewCustomer()">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function submitNewCustomer() {
+    const form = document.getElementById('newCustomerForm');
+    const data = Object.fromEntries(new FormData(form).entries());
+    const resp = await fetch('/api/customers/', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+    });
+    if (resp.ok) { window.location.reload(); } else { alert('Failed to create customer: ' + await resp.text()); }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}

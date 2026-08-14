@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Billing - Letsma MSP{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="page-title">Billing & Invoices</h2>
+    <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newInvoiceModal">
+        <i class="bi bi-plus-lg"></i> New Invoice
+    </button>
+</div>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> Connect Xero once via <a href="/auth/xero/login">/auth/xero/login</a> to enable
+    automatic invoice creation directly in your Xero organisation.
+</div>
+
+<div class="card stat-card p-3">
+    <table class="table align-middle">
+        <thead><tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Status</th><th>Xero</th><th></th></tr></thead>
+        <tbody>
+        {% for i in invoices %}
+            <tr>
+                <td>{{ i.invoice_number or i.id[:8] }}</td>
+                <td>{{ i.customer.name }}</td>
+                <td>£{{ '%.2f'|format(i.total) }}</td>
+                <td><span class="badge bg-secondary">{{ i.status.value if i.status.value is defined else i.status }}</span></td>
+                <td>{% if i.xero_invoice_id %}<i class="bi bi-check-circle text-success"></i> Synced{% else %}<span class="text-muted">Not synced</span>{% endif %}</td>
+                <td>
+                    {% if not i.xero_invoice_id %}
+                    <button class="btn btn-sm btn-outline-primary" onclick="pushToXero('{{ i.id }}')">Push to Xero</button>
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6" class="text-muted">No invoices yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="modal fade" id="newInvoiceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">New Invoice</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <form id="newInvoiceForm">
+          <div class="mb-2">
+            <label class="form-label">Customer</label>
+            <select class="form-select" name="customer_id" required>
+                {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-2"><label class="form-label">Line Description</label><input class="form-control" name="description" value="Monthly Managed Services" required></div>
+          <div class="row">
+            <div class="col-6 mb-2"><label class="form-label">Quantity</label><input class="form-control" name="quantity" type="number" value="1" step="0.01"></div>
+            <div class="col-6 mb-2"><label class="form-label">Unit Price (£)</label><input class="form-control" name="unit_price" type="number" value="0" step="0.01"></div>
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="push_to_xero" id="pushXero">
+            <label class="form-check-label" for="pushXero">Push to Xero immediately</label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="submitInvoice()">Create Invoice</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function submitInvoice() {
+    const form = document.getElementById('newInvoiceForm');
+    const fd = new FormData(form);
+    const payload = {
+        customer_id: fd.get('customer_id'),
+        push_to_xero: fd.get('push_to_xero') === 'on',
+        line_items: [{description: fd.get('description'), quantity: parseFloat(fd.get('quantity')), unit_price: parseFloat(fd.get('unit_price'))}]
+    };
+    const resp = await fetch('/api/billing/invoices', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    if (resp.ok) window.location.reload(); else alert('Failed: ' + await resp.text());
+}
+async function pushToXero(invoiceId) {
+    const resp = await fetch(`/api/billing/invoices/${invoiceId}/push-to-xero`, {method: 'POST'});
+    if (resp.ok) window.location.reload(); else alert('Xero push failed: ' + await resp.text());
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}

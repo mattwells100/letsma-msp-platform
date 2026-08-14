@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ customer.name }} - Support Portal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/style.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-dark" style="background-color:#0b2545">
+    <div class="container">
+        <span class="navbar-brand"><strong style="color:#ff9f1c">LETSMA</strong> Support Portal</span>
+    </div>
+</nav>
+<div class="container py-4">
+    <h3 class="page-title">Welcome, {{ customer.name }}</h3>
+    <p class="text-muted">Raise a new support request or check the status of your existing tickets and invoices below.</p>
+
+    <div class="card stat-card p-3 mb-4">
+        <h5 class="page-title">Raise a New Ticket</h5>
+        <form onsubmit="return submitTicket(event)">
+            <div class="mb-2"><label class="form-label">Subject</label><input class="form-control" name="subject" required></div>
+            <div class="mb-2"><label class="form-label">Description</label><textarea class="form-control" name="description"></textarea></div>
+            <div class="mb-2">
+                <label class="form-label">Priority</label>
+                <select class="form-select" name="priority">
+                    <option>Low</option><option selected>Normal</option><option>High</option><option>Critical</option>
+                </select>
+            </div>
+            <button class="btn text-white" style="background-color:#0b2545">Submit Request</button>
+        </form>
+    </div>
+
+    <div class="card stat-card p-3 mb-4">
+        <h5 class="page-title">Your Tickets</h5>
+        <table class="table table-sm">
+            <thead><tr><th>#</th><th>Subject</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for t in tickets %}
+                <tr><td>{{ t.ticket_number }}</td><td>{{ t.subject }}</td>
+                    <td><span class="badge badge-status-{{ (t.status.value if t.status.value is defined else t.status)|replace(' ','') }}">{{ t.status.value if t.status.value is defined else t.status }}</span></td></tr>
+            {% else %}<tr><td colspan="3" class="text-muted">No tickets yet.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card stat-card p-3">
+        <h5 class="page-title">Your Invoices</h5>
+        <table class="table table-sm">
+            <thead><tr><th>Invoice</th><th>Total</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for i in invoices %}
+                <tr><td>{{ i.invoice_number or i.id[:8] }}</td><td>£{{ '%.2f'|format(i.total) }}</td>
+                    <td><span class="badge bg-secondary">{{ i.status.value if i.status.value is defined else i.status }}</span></td></tr>
+            {% else %}<tr><td colspan="3" class="text-muted">No invoices yet.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function submitTicket(e) {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+        customer_id: "{{ customer.id }}",
+        subject: fd.get('subject'), description: fd.get('description'),
+        priority: fd.get('priority'), source: 'Portal'
+    };
+    const resp = await fetch('/api/tickets/', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    if (resp.ok) window.location.reload(); else alert('Failed to submit ticket');
+    return false;
+}
+</script>
+</body>
+</html>

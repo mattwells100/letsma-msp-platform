@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Microsoft 365 Licenses - Letsma MSP{% endblock %}
+{% block content %}
+<h2 class="page-title mb-4">Microsoft 365 License Overview</h2>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> Register an Entra ID app with <code>Organization.Read.All</code>,
+    <code>User.Read.All</code> and <code>Directory.Read.All</code> application permissions, set the credentials
+    in <code>.env</code>, then set each customer's <code>m365_tenant_id</code> and click "Sync M365 Licenses"
+    on their customer page.
+</div>
+
+<div class="card stat-card p-3 mb-4">
+    <h5 class="page-title">Aggregate Across All Customers</h5>
+    <table class="table table-sm">
+        <thead><tr><th>SKU</th><th>Consumed</th><th>Enabled</th><th>Available</th></tr></thead>
+        <tbody>
+        {% for name, t in totals.items() %}
+            <tr><td>{{ name }}</td><td>{{ t.consumed }}</td><td>{{ t.enabled }}</td><td>{{ t.enabled - t.consumed }}</td></tr>
+        {% else %}
+            <tr><td colspan="4" class="text-muted">No license data synced yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card stat-card p-3">
+    <h5 class="page-title">Customers</h5>
+    <table class="table table-sm">
+        <thead><tr><th>Customer</th><th>Tenant ID</th><th></th></tr></thead>
+        <tbody>
+        {% for c in customers %}
+            <tr>
+                <td>{{ c.name }}</td>
+                <td class="small text-muted">{{ c.m365_tenant_id or 'Not configured' }}</td>
+                <td><a href="/customers/{{ c.id }}" class="btn btn-sm btn-outline-primary">View & Sync</a></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

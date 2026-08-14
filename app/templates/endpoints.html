@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Endpoints - Letsma MSP{% endblock %}
+{% block content %}
+<h2 class="page-title mb-4">Endpoint Monitoring</h2>
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> Deploy <code>agent/monitor_agent.py</code> to each managed device
+    (via Task Scheduler on Windows or a systemd timer on Linux/macOS) to populate this view automatically.
+</div>
+<div class="card stat-card p-3">
+    <table class="table align-middle">
+        <thead><tr><th>Host</th><th>Customer</th><th>OS</th><th>IP</th><th>Status</th><th>Last Seen</th></tr></thead>
+        <tbody>
+        {% for e in endpoints %}
+            <tr>
+                <td>{{ e.hostname }}</td>
+                <td>{{ e.customer.name }}</td>
+                <td>{{ e.os_name or '-' }}</td>
+                <td>{{ e.ip_address or '-' }}</td>
+                <td><span class="badge badge-ep-{{ e.status.value if e.status.value is defined else e.status }}">{{ e.status.value if e.status.value is defined else e.status }}</span></td>
+                <td class="small text-muted">{{ e.last_seen.strftime('%d %b %H:%M') if e.last_seen else 'Never' }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6" class="text-muted">No endpoints registered yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
