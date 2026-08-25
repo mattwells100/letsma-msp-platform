@@ -20,7 +20,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Customer, LicenseAssignment, TenantLicenseSummary
+from app.models import Customer, LicenseAssignment, TenantLicenseSummary, Contact
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -110,3 +110,78 @@ async def sync_licenses_for_customer(db: Session, customer: Customer):
 
     db.commit()
     return {"skus_synced": len(skus), "users_synced": len(users)}
+
+async def sync_contacts_for_customer(db, customer):
+    """
+    Pulls active (enabled) users from the customer's M365 tenant via
+    Microsoft Graph and upserts them as helpdesk Contacts.
+    """
+    if not customer.m365_tenant_id:
+        raise ValueError(f"Customer '{customer.name}' has no m365_tenant_id configured.")
+
+    token = await _get_app_token(customer.m365_tenant_id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    select_fields = "id,displayName,givenName,surname,mail,userPrincipalName,businessPhones,mobilePhone,accountEnabled"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{GRAPH_BASE}/users?$select={select_fields}&$top=999",
+            headers=headers,
+        )
+        resp.raise_for_status()
+        users = resp.json().get("value", [])
+
+    created_count = 0
+    updated_count = 0
+    skipped_count = 0
+
+    for user in users:
+        if user.get("accountEnabled") is False:
+            skipped_count += 1
+            continue
+
+        email = user.get("mail") or user.get("userPrincipalName")
+        if not email:
+            skipped_count += 1
+            continue
+
+        business_phones = user.get("businessPhones") or []
+        business_phone = business_phones[0] if business_phones else None
+
+        graph_user_id = user["id"]
+        existing = db.query(Contact).filter_by(
+            customer_id=customer.id, graph_user_id=graph_user_id
+        ).first()
+
+        if existing:
+            existing.name = user.get("displayName") or existing.name
+            existing.first_name = user.get("givenName")
+            existing.last_name = user.get("surname")
+            existing.email = email
+            existing.business_phone = business_phone
+            existing.mobile_phone = user.get("mobilePhone")
+            existing.last_synced_from_graph = datetime.utcnow()
+            updated_count += 1
+        else:
+            db.add(Contact(
+                customer_id=customer.id,
+                name=user.get("displayName") or email,
+                first_name=user.get("givenName"),
+                last_name=user.get("surname"),
+                email=email,
+                business_phone=business_phone,
+                mobile_phone=user.get("mobilePhone"),
+                graph_user_id=graph_user_id,
+                source="graph_sync",
+                last_synced_from_graph=datetime.utcnow(),
+            ))
+            created_count += 1
+
+    db.commit()
+    return {
+        "created": created_count,
+        "updated": updated_count,
+        "skipped_disabled_or_no_email": skipped_count,
+        "total_from_graph": len(users),
+    }
