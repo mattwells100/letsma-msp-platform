@@ -13,6 +13,7 @@ from app.database import Base, engine
 from app.config import settings
 from app.routers import customers, tickets, billing, licenses, endpoints
 from app.routers import webhooks_whatsapp, webhooks_teams, auth_xero, portal
+from app.routers import admin_migrate, contacts_sync
 
 Base.metadata.create_all(bind=engine)
 
@@ -40,6 +41,8 @@ app.include_router(auth_xero.router)
 
 # Server-rendered portal (dashboard + customer self-service)
 app.include_router(portal.router)
+app.include_router(admin_migrate.router)
+app.include_router(contacts_sync.router)
 
 
 @app.get("/healthz", tags=["System"])

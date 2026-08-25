@@ -100,11 +100,18 @@ class Contact(Base):
     id = Column(String, primary_key=True, default=gen_id)
     customer_id = Column(String, ForeignKey("customers.id"), nullable=False)
     name = Column(String, nullable=False)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
     email = Column(String, nullable=True)
     phone = Column(String, nullable=True)
+    business_phone = Column(String, nullable=True)
+    mobile_phone = Column(String, nullable=True)
     whatsapp_number = Column(String, nullable=True)
     role = Column(String, nullable=True)
     is_primary = Column(Boolean, default=False)
+    graph_user_id = Column(String, nullable=True)
+    source = Column(String, default="manual")
+    last_synced_from_graph = Column(DateTime, nullable=True)
 
     customer = relationship("Customer", back_populates="contacts")
 

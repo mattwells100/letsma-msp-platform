@@ -6,14 +6,21 @@
 
 <div class="row g-3 mb-4">
     <div class="col-md-3">
-        <form action="/api/licenses/sync/{{ customer.id }}" method="post" onsubmit="return syncLicenses(event)">
+        /api/licenses/sync/{{ customer.id }}
             <button class="btn btn-outline-primary w-100"><i class="bi bi-arrow-repeat"></i> Sync M365 Licenses</button>
         </form>
     </div>
     <div class="col-md-3">
-        <a class="btn btn-outline-secondary w-100" href="/portal/{{ customer.id }}" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Open Customer Portal</a>
+        <button class="btn btn-outline-primary w-100" onclick="return syncContacts(event, '{{ customer.id }}')">
+            <i class="bi bi-person-lines-fill"></i> Sync Contacts
+        </button>
+    </div>
+    <div class="col-md-3">
+        <a class="btn btn-outline
     </div>
 </div>
+
+<div id="contactsSyncResult" class="mb-3"></div>
 
 <div class="row g-4">
     <div class="col-md-6">
@@ -39,44 +46,4 @@
                 {% for e in endpoints %}
                     <tr><td>{{ e.hostname }}</td><td>{{ e.os_name or '-' }}</td>
                         <td><span class="badge badge-ep-{{ e.status.value if e.status.value is defined else e.status }}">{{ e.status.value if e.status.value is defined else e.status }}</span></td></tr>
-                {% else %}<tr><td colspan="3" class="text-muted">No endpoints registered.</td></tr>{% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card stat-card p-3 mb-4">
-            <h5 class="page-title">Invoices</h5>
-            <table class="table table-sm">
-                <thead><tr><th>Number</th><th>Total</th><th>Status</th></tr></thead>
-                <tbody>
-                {% for i in invoices %}
-                    <tr><td>{{ i.invoice_number or i.id[:8] }}</td><td>£{{ '%.2f'|format(i.total) }}</td>
-                        <td><span class="badge bg-secondary">{{ i.status.value if i.status.value is defined else i.status }}</span></td></tr>
-                {% else %}<tr><td colspan="3" class="text-muted">No invoices.</td></tr>{% endfor %}
-                </tbody>
-            </table>
-        </div>
-        <div class="card stat-card p-3">
-            <h5 class="page-title">Microsoft 365 License Summary</h5>
-            <table class="table table-sm">
-                <thead><tr><th>SKU</th><th>Consumed / Enabled</th></tr></thead>
-                <tbody>
-                {% for s in license_summary %}
-                    <tr><td>{{ s.friendly_name }}</td><td>{{ s.consumed_units }} / {{ s.enabled_units }}</td></tr>
-                {% else %}<tr><td colspan="2" class="text-muted">Not synced yet - set an m365_tenant_id and click Sync above.</td></tr>{% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<script>
-async function syncLicenses(e) {
-    e.preventDefault();
-    const resp = await fetch(e.target.action, {method: 'POST'});
-    if (resp.ok) { window.location.reload(); } else { alert('Sync failed: ' + await resp.text()); }
-    return false;
-}
-</script>
-{% endblock %}
+                {% else %}<tr><td colspan="3" class="text-muted">No endpo
