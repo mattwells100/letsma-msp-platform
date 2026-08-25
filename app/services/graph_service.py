@@ -113,8 +113,13 @@ async def sync_licenses_for_customer(db: Session, customer: Customer):
 
 async def sync_contacts_for_customer(db, customer):
     """
-    Pulls active (enabled) users from the customer's M365 tenant via
-    Microsoft Graph and upserts them as helpdesk Contacts.
+    Pulls active (enabled) AND licensed users from the customer's M365
+    tenant via Microsoft Graph and upserts them as helpdesk Contacts.
+
+    Only users with at least one assigned Microsoft 365 license are
+    synced - this naturally excludes shared mailboxes, resource accounts,
+    and guest/unlicensed accounts that would otherwise clutter the
+    helpdesk contact list.
     """
     if not customer.m365_tenant_id:
         raise ValueError(f"Customer '{customer.name}' has no m365_tenant_id configured.")
@@ -122,7 +127,10 @@ async def sync_contacts_for_customer(db, customer):
     token = await _get_app_token(customer.m365_tenant_id)
     headers = {"Authorization": f"Bearer {token}"}
 
-    select_fields = "id,displayName,givenName,surname,mail,userPrincipalName,businessPhones,mobilePhone,accountEnabled"
+    select_fields = (
+        "id,displayName,givenName,surname,mail,userPrincipalName,"
+        "businessPhones,mobilePhone,accountEnabled,assignedLicenses"
+    )
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -134,16 +142,22 @@ async def sync_contacts_for_customer(db, customer):
 
     created_count = 0
     updated_count = 0
-    skipped_count = 0
+    skipped_disabled_count = 0
+    skipped_unlicensed_count = 0
+    skipped_no_email_count = 0
 
     for user in users:
         if user.get("accountEnabled") is False:
-            skipped_count += 1
+            skipped_disabled_count += 1
+            continue
+
+        if not user.get("assignedLicenses"):
+            skipped_unlicensed_count += 1
             continue
 
         email = user.get("mail") or user.get("userPrincipalName")
         if not email:
-            skipped_count += 1
+            skipped_no_email_count += 1
             continue
 
         business_phones = user.get("businessPhones") or []
@@ -182,6 +196,8 @@ async def sync_contacts_for_customer(db, customer):
     return {
         "created": created_count,
         "updated": updated_count,
-        "skipped_disabled_or_no_email": skipped_count,
+        "skipped_disabled": skipped_disabled_count,
+        "skipped_unlicensed": skipped_unlicensed_count,
+        "skipped_no_email": skipped_no_email_count,
         "total_from_graph": len(users),
     }

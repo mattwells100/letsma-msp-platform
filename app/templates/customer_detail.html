@@ -134,9 +134,10 @@ async function syncContacts(e, customerId) {
             resultDiv.innerHTML = `<div class="alert alert-success py-2 mb-0">
                 <i class="bi bi-check-circle"></i>
                 Synced successfully: <strong>${data.created}</strong> new, <strong>${data.updated}</strong> updated
-                (${data.skipped_disabled_or_no_email} skipped - disabled or no email) out of ${data.total_from_graph} users found.
+                out of ${data.total_from_graph} users found in Microsoft 365.
+                <br><span class="small text-muted">Skipped: ${data.skipped_disabled} disabled, ${data.skipped_unlicensed} unlicensed, ${data.skipped_no_email} no email.</span>
             </div>`;
-            setTimeout(() => window.location.reload(), 2000);
+            setTimeout(() => window.location.reload(), 2500);
         } else {
             resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0"><i class="bi bi-exclamation-triangle"></i> Sync failed: ${data.detail || JSON.stringify(data)}</div>`;
         }
