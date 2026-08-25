@@ -6,7 +6,7 @@
 
 <div class="row g-3 mb-4">
     <div class="col-md-3">
-        /api/licenses/sync/{{ customer.id }}
+        <form action="/api/licenses/sync/{{ customer.id }}" method="post" onsubmit="return syncLicenses(event)">
             <button class="btn btn-outline-primary w-100"><i class="bi bi-arrow-repeat"></i> Sync M365 Licenses</button>
         </form>
     </div>
@@ -16,7 +16,7 @@
         </button>
     </div>
     <div class="col-md-3">
-        <a class="btn btn-outline
+        <a class="btn btn-outline-secondary w-100" href="/portal/{{ customer.id }}" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Open Customer Portal</a>
     </div>
 </div>
 
@@ -34,7 +34,9 @@
                         <td>{{ t.ticket_number }}</td><td>{{ t.subject }}</td>
                         <td><span class="badge badge-status-{{ (t.status.value if t.status.value is defined else t.status)|replace(' ','') }}">{{ t.status.value if t.status.value is defined else t.status }}</span></td>
                     </tr>
-                {% else %}<tr><td colspan="3" class="text-muted">No tickets.</td></tr>{% endfor %}
+                {% else %}
+                    <tr><td colspan="3" class="text-muted">No tickets.</td></tr>
+                {% endfor %}
                 </tbody>
             </table>
         </div>
@@ -46,4 +48,102 @@
                 {% for e in endpoints %}
                     <tr><td>{{ e.hostname }}</td><td>{{ e.os_name or '-' }}</td>
                         <td><span class="badge badge-ep-{{ e.status.value if e.status.value is defined else e.status }}">{{ e.status.value if e.status.value is defined else e.status }}</span></td></tr>
-                {% else %}<tr><td colspan="3" class="text-muted">No endpo
+                {% else %}
+                    <tr><td colspan="3" class="text-muted">No endpoints registered.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card stat-card p-3 mb-4">
+            <h5 class="page-title">Invoices</h5>
+            <table class="table table-sm">
+                <thead><tr><th>Number</th><th>Total</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for i in invoices %}
+                    <tr><td>{{ i.invoice_number or i.id[:8] }}</td><td>£{{ '%.2f'|format(i.total) }}</td>
+                        <td><span class="badge bg-secondary">{{ i.status.value if i.status.value is defined else i.status }}</span></td></tr>
+                {% else %}
+                    <tr><td colspan="3" class="text-muted">No invoices.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="card stat-card p-3">
+            <h5 class="page-title">Microsoft 365 License Summary</h5>
+            <table class="table table-sm">
+                <thead><tr><th>SKU</th><th>Consumed / Enabled</th></tr></thead>
+                <tbody>
+                {% for s in license_summary %}
+                    <tr><td>{{ s.friendly_name }}</td><td>{{ s.consumed_units }} / {{ s.enabled_units }}</td></tr>
+                {% else %}
+                    <tr><td colspan="2" class="text-muted">Not synced yet - set an m365_tenant_id and click Sync above.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card stat-card p-3 mt-4">
+    <h5 class="page-title">Contacts</h5>
+    <table class="table table-sm align-middle">
+        <thead><tr><th>Name</th><th>Email</th><th>Business Phone</th><th>Mobile Phone</th><th>Role</th><th>Source</th></tr></thead>
+        <tbody>
+        {% for c in customer.contacts %}
+            <tr>
+                <td>{{ c.name }}{% if c.is_primary %} <span class="badge bg-warning text-dark">Primary</span>{% endif %}</td>
+                <td>{{ c.email or '-' }}</td>
+                <td>{{ c.business_phone or c.phone or '-' }}</td>
+                <td>{{ c.mobile_phone or '-' }}</td>
+                <td>{{ c.role or '-' }}</td>
+                <td>
+                    {% if c.source == 'graph_sync' %}
+                        <span class="badge bg-info text-dark"><i class="bi bi-microsoft"></i> M365 Sync</span>
+                    {% else %}
+                        <span class="badge bg-secondary">Manual</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6" class="text-muted">No contacts yet - add one manually or click "Sync Contacts" above (requires m365_tenant_id to be set).</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function syncLicenses(e) {
+    e.preventDefault();
+    const resp = await fetch(e.target.action, {method: 'POST'});
+    if (resp.ok) { window.location.reload(); } else { alert('Sync failed: ' + await resp.text()); }
+    return false;
+}
+
+async function syncContacts(e, customerId) {
+    e.preventDefault();
+    const resultDiv = document.getElementById('contactsSyncResult');
+    resultDiv.innerHTML = '<div class="alert alert-info py-2 mb-0"><i class="bi bi-hourglass-split"></i> Syncing contacts from Microsoft 365...</div>';
+
+    try {
+        const resp = await fetch(`/api/contacts/sync/${customerId}`, {method: 'POST'});
+        const data = await resp.json();
+
+        if (resp.ok) {
+            resultDiv.innerHTML = `<div class="alert alert-success py-2 mb-0">
+                <i class="bi bi-check-circle"></i>
+                Synced successfully: <strong>${data.created}</strong> new, <strong>${data.updated}</strong> updated
+                (${data.skipped_disabled_or_no_email} skipped - disabled or no email) out of ${data.total_from_graph} users found.
+            </div>`;
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0"><i class="bi bi-exclamation-triangle"></i> Sync failed: ${data.detail || JSON.stringify(data)}</div>`;
+        }
+    } catch (err) {
+        resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0"><i class="bi bi-exclamation-triangle"></i> Sync failed: ${err}</div>`;
+    }
+    return false;
+}
+</script>
+{% endblock %}
