@@ -52,4 +52,12 @@ def health_check():
         db_backend = "postgresql"
     elif settings.DATABASE_URL.startswith("sqlite"):
         db_backend = "sqlite"
-    return {"status": "ok", "app": settings.APP_NAME, "database_backend": db_backend}
+    agent_key_preview = settings.AGENT_API_KEY[:6] if settings.AGENT_API_KEY else "EMPTY"
+    agent_key_length = len(settings.AGENT_API_KEY) if settings.AGENT_API_KEY else 0
+    return {
+        "status": "ok",
+        "app": settings.APP_NAME,
+        "database_backend": db_backend,
+        "agent_key_preview": agent_key_preview,
+        "agent_key_length": agent_key_length,
+    }
