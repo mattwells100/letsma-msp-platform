@@ -14,6 +14,7 @@ from app.config import settings
 from app.routers import customers, tickets, billing, licenses, endpoints
 from app.routers import webhooks_whatsapp, webhooks_teams, auth_xero, portal
 from app.routers import admin_migrate, contacts_sync
+from app.routers import billing_config
 
 Base.metadata.create_all(bind=engine)
 
@@ -43,6 +44,7 @@ app.include_router(auth_xero.router)
 app.include_router(portal.router)
 app.include_router(admin_migrate.router)
 app.include_router(contacts_sync.router)
+app.include_router(billing_config.router)
 
 
 @app.get("/healthz", tags=["System"])
