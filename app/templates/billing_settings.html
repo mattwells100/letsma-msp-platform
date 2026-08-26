@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block title %}Billing Settings - Letsma MSP{% endblock %}
+{% block content %}
+<h2 class="page-title mb-1">Billing Settings</h2>
+<div class="text-muted mb-4">Configure how each customer is billed, and set monthly prices for Microsoft 365 licences.</div>
+
+<div id="settingsAlert" class="mb-3"></div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card stat-card p-3 mb-4">
+            <h5 class="page-title">Customer Billing Configuration</h5>
+            <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Customer</th>
+                        <th>Billing Type</th>
+                        <th>Rate / Fee</th>
+                        <th>Amazon Markup %</th>
+                        <th>Licence Billing</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="customersTableBody">
+                {% for c in customers %}
+                    <tr data-customer-id="{{ c.id }}">
+                        <td>{{ c.name }}</td>
+                        <td>
+                            <select class="form-select form-select-sm billing-type-select">
+                                <option value="payg" {% if c.billing_type == 'payg' %}selected{% endif %}>PAYG</option>
+                                <option value="contract" {% if c.billing_type == 'contract' %}selected{% endif %}>Contract</option>
+                            </select>
+                        </td>
+                        <td>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">£</span>
+                                <input type="number" step="0.01" class="form-control rate-fee-input"
+                                       value="{{ c.monthly_support_fee if c.billing_type == 'contract' else c.payg_hourly_rate }}">
+                                <span class="input-group-text rate-fee-suffix">{{ '/mo' if c.billing_type == 'contract' else '/hr' }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="input-group input-group-sm">
+                                <input type="number" step="0.1" class="form-control amazon-markup-input" value="{{ c.amazon_markup_percent or 0 }}">
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </td>
+                        <td>
+                            <select class="form-select form-select-sm license-mode-select">
+                                <option value="none" {% if c.license_billing_mode == 'none' %}selected{% endif %}>Not billed</option>
+                                <option value="all" {% if c.license_billing_mode == 'all' %}selected{% endif %}>All licences</option>
+                                <option value="selected" {% if c.license_billing_mode == 'selected' %}selected{% endif %}>Selected SKUs</option>
+                            </select>
+                            <input type="text" class="form-control form-control-sm mt-1 selected-skus-input"
+                                   placeholder="e.g. SPB,EXCHANGESTANDARD"
+                                   value="{{ c.licensed_skus_billed or '' }}"
+                                   style="{% if c.license_billing_mode != 'selected' %}display:none;{% endif %}">
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary save-customer-btn">Save</button>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="text-muted">No customers yet.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card stat-card p-3 mb-4">
+            <h5 class="page-title">Microsoft 365 Licence Prices</h5>
+            <p class="small text-muted">Global default price per seat, per month. Add a customer-specific override further down if one customer negotiated a different rate.</p>
+            <table class="table table-sm align-middle" id="licensePricesTable">
+                <thead><tr><th>SKU</th><th>Scope</th><th>Monthly Price</th><th></th></tr></thead>
+                <tbody>
+                {% for p in license_prices %}
+                    <tr>
+                        <td>{{ p.sku_part_number }}</td>
+                        <td>
+                            {% if p.customer_id %}
+                                <span class="badge bg-info text-dark">
+                                    {% for c in customers %}{% if c.id == p.customer_id %}{{ c.name }}{% endif %}{% endfor %}
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary">Global default</span>
+                            {% endif %}
+                        </td>
+                        <td>£{{ '%.2f'|format(p.monthly_unit_price) }}</td>
+                        <td></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="4" class="text-muted">No prices set yet.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+
+            <hr>
+            <h6 class="page-title">Add / Update a Price</h6>
+            <form onsubmit="return saveLicensePrice(event)">
+                <div class="mb-2">
+                    <label class="form-label small">SKU part number</label>
+                    <input type="text" list="knownSkusList" class="form-control form-control-sm" id="newPriceSku" placeholder="e.g. SPB" required>
+                    <datalist id="knownSkusList">
+                        {% for sku in known_skus %}<option value="{{ sku }}">{% endfor %}
+                    </datalist>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Monthly price (£)</label>
+                    <input type="number" step="0.01" class="form-control form-control-sm" id="newPriceValue" required>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Customer (leave blank for global default)</label>
+                    <select class="form-select form-select-sm" id="newPriceCustomer">
+                        <option value="">-- Global default --</option>
+                        {% for c in customers %}
+                            <option value="{{ c.id }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-sm text-white" style="background-color:#0b2545">Save Price</button>
+            </form>
+        </div>
+
+        <div class="card stat-card p-3">
+            <h5 class="page-title">Generate Monthly Invoices</h5>
+            <p class="small text-muted">Creates one consolidated invoice per active customer for the selected month. Safe to re-run - customers already billed for that month are automatically skipped.</p>
+            <form class="row g-2" onsubmit="return generateInvoices(event)">
+                <div class="col-6">
+                    <select class="form-select form-select-sm" id="genMonth">
+                        {% for m in range(1, 13) %}<option value="{{ m }}">{{ ["January","February","March","April","May","June","July","August","September","October","November","December"][m-1] }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-6">
+                    <input type="number" class="form-control form-control-sm" id="genYear" value="2026">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-sm w-100 text-white" style="background-color:#0b2545">Generate Invoices</button>
+                </div>
+            </form>
+            <div id="generateResult" class="mt-2 small"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+function showAlert(message, type) {
+    const alertDiv = document.getElementById('settingsAlert');
+    alertDiv.innerHTML = `<div class="alert alert-${type} py-2 mb-0">${message}</div>`;
+    setTimeout(() => { alertDiv.innerHTML = ''; }, 5000);
+}
+
+document.querySelectorAll('.license-mode-select').forEach(select => {
+    select.addEventListener('change', (e) => {
+        const row = e.target.closest('tr');
+        const skusInput = row.querySelector('.selected-skus-input');
+        skusInput.style.display = (e.target.value === 'selected') ? '' : 'none';
+    });
+});
+
+document.querySelectorAll('.billing-type-select').forEach(select => {
+    select.addEventListener('change', (e) => {
+        const row = e.target.closest('tr');
+        const suffix = row.querySelector('.rate-fee-suffix');
+        suffix.textContent = (e.target.value === 'contract') ? '/mo' : '/hr';
+    });
+});
+
+document.querySelectorAll('.save-customer-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const row = btn.closest('tr');
+        const customerId = row.dataset.customerId;
+        const billingType = row.querySelector('.billing-type-select').value;
+        const rateFee = parseFloat(row.querySelector('.rate-fee-input').value) || 0;
+        const amazonMarkup = parseFloat(row.querySelector('.amazon-markup-input').value) || 0;
+        const licenseMode = row.querySelector('.license-mode-select').value;
+        const selectedSkus = row.querySelector('.selected-skus-input').value.trim();
+
+        const payload = {
+            billing_type: billingType,
+            amazon_markup_percent: amazonMarkup,
+            license_billing_mode: licenseMode,
+            licensed_skus_billed: selectedSkus || null,
+        };
+        if (billingType === 'contract') {
+            payload.monthly_support_fee = rateFee;
+            payload.payg_hourly_rate = 0;
+        } else {
+            payload.payg_hourly_rate = rateFee;
+            payload.monthly_support_fee = 0;
+        }
+
+        try {
+            const resp = await fetch(`/api/billing-config/customers/${customerId}`, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                showAlert(`Saved billing configuration for <strong>${data.customer}</strong>.`, 'success');
+            } else {
+                showAlert(`Failed to save: ${data.detail || JSON.stringify(data)}`, 'danger');
+            }
+        } catch (err) {
+            showAlert(`Failed to save: ${err}`, 'danger');
+        }
+    });
+});
+
+async function saveLicensePrice(e) {
+    e.preventDefault();
+    const sku = document.getElementById('newPriceSku').value.trim();
+    const price = parseFloat(document.getElementById('newPriceValue').value);
+    const customerId = document.getElementById('newPriceCustomer').value || null;
+
+    const payload = {sku_part_number: sku, monthly_unit_price: price};
+    if (customerId) payload.customer_id = customerId;
+
+    try {
+        const resp = await fetch('/api/billing-config/license-prices', {
+            method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            showAlert(`Saved price for <strong>${data.sku_part_number}</strong> (${data.scope}): £${data.monthly_unit_price.toFixed(2)}/mo`, 'success');
+            setTimeout(() => window.location.reload(), 1200);
+        } else {
+            showAlert(`Failed to save price: ${data.detail || JSON.stringify(data)}`, 'danger');
+        }
+    } catch (err) {
+        showAlert(`Failed to save price: ${err}`, 'danger');
+    }
+    return false;
+}
+
+async function generateInvoices(e) {
+    e.preventDefault();
+    const month = document.getElementById('genMonth').value;
+    const year = document.getElementById('genYear').value;
+    const resultDiv = document.getElementById('generateResult');
+    resultDiv.innerHTML = '<div class="alert alert-info py-2 mb-0">Generating...</div>';
+
+    try {
+        const resp = await fetch(`/api/billing/generate-monthly-invoices?year=${year}&month=${month}`, {method: 'POST'});
+        const data = await resp.json();
+        if (resp.ok) {
+            let html = `<div class="alert alert-success py-2 mb-0">
+                <strong>${data.period}</strong>: ${data.invoices_created} invoice(s) created out of ${data.customers_processed} customer(s) processed.
+                <ul class="mb-0 mt-1">`;
+            data.results.forEach(r => {
+                if (r.invoice_created) {
+                    html += `<li>${r.customer}: £${r.total.toFixed(2)}${r.warnings.length ? ' - ' + r.warnings.join('; ') : ''}</li>`;
+                } else {
+                    html += `<li class="text-muted">${r.customer}: nothing to bill</li>`;
+                }
+            });
+            html += `</ul></div>`;
+            resultDiv.innerHTML = html;
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">${data.detail || JSON.stringify(data)}</div>`;
+        }
+    } catch (err) {
+        resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">${err}</div>`;
+    }
+    return false;
+}
+</script>
+{% endblock %}
