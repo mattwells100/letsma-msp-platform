@@ -54,6 +54,24 @@ def customers_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("customers.html", {"request": request, "customers": customers, "active_page": "customers"})
 
 
+def _contact_sort_key(contact):
+    """
+    Sorts contacts alphabetically by first name. Uses the dedicated
+    first_name field when available (Graph-synced contacts), otherwise
+    falls back to the first word of the 'name' field (manual contacts,
+    which don't have first_name populated). Never returns None, so this
+    is always safe to sort with (avoids a TypeError crash from comparing
+    None to a string, which a naive `sort(attribute='first_name')` in the
+    template would otherwise trigger for every manually-added contact).
+    """
+    if contact.first_name:
+        return contact.first_name.strip().lower()
+    if contact.name:
+        parts = contact.name.strip().split()
+        return parts[0].lower() if parts else ""
+    return ""
+
+
 @router.get("/customers/{customer_id}")
 def customer_detail_page(customer_id: str, request: Request, db: Session = Depends(get_db)):
     customer = db.query(models.Customer).get(customer_id)
@@ -63,9 +81,11 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
     invoices = db.query(models.Invoice).filter_by(customer_id=customer_id).order_by(models.Invoice.created_at.desc()).all()
     endpoints = db.query(models.Endpoint).filter_by(customer_id=customer_id).all()
     license_summary = db.query(models.TenantLicenseSummary).filter_by(customer_id=customer_id).all()
+    sorted_contacts = sorted(customer.contacts, key=_contact_sort_key)
     return templates.TemplateResponse("customer_detail.html", {
         "request": request, "customer": customer, "tickets": tickets, "invoices": invoices,
-        "endpoints": endpoints, "license_summary": license_summary, "active_page": "customers",
+        "endpoints": endpoints, "license_summary": license_summary, "sorted_contacts": sorted_contacts,
+        "active_page": "customers",
     })
 
 
