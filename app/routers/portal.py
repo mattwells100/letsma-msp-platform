@@ -121,6 +121,29 @@ def licenses_page(request: Request, db: Session = Depends(get_db)):
         totals[row.friendly_name or row.sku_part_number]["consumed"] += row.consumed_units
     return templates.TemplateResponse("licenses.html", {"request": request, "customers": customers, "totals": totals, "active_page": "licenses"})
 
+@router.get("/billing-settings")
+def billing_settings_page(request: Request, db: Session = Depends(get_db)):
+    customers = db.query(models.Customer).order_by(models.Customer.name).all()
+    license_prices = db.query(models.LicensePrice).all()
+
+    # Collect the distinct set of SKUs seen anywhere (either already priced,
+    # or currently assigned to at least one customer) so the "add a new
+    # price" dropdown can suggest real SKUs instead of requiring the user
+    # to type an exact SKU code from memory.
+    priced_skus = {p.sku_part_number for p in license_prices}
+    assigned_skus = {
+        row[0] for row in db.query(models.LicenseAssignment.sku_part_number).distinct().all()
+    }
+    known_skus = sorted(priced_skus | assigned_skus)
+
+    return templates.TemplateResponse("billing_settings.html", {
+        "request": request,
+        "customers": customers,
+        "license_prices": license_prices,
+        "known_skus": known_skus,
+        "active_page": "billing-settings",
+    })
+
 
 @router.get("/endpoints")
 def endpoints_page(request: Request, db: Session = Depends(get_db)):
