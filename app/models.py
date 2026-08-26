@@ -9,6 +9,7 @@ Modules covered:
   - Endpoint monitoring (agents, heartbeats, alerts)
   - Staff/Technician users
   - Integration credential/token storage (OAuth tokens for Xero, Graph)
+  - Helpdesk labour time tracking + Amazon order billing + licence pricing
 """
 import enum
 import uuid
@@ -87,11 +88,21 @@ class Customer(Base):
     whatsapp_number = Column(String, nullable=True)    # primary WhatsApp contact number
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # --- Billing engine configuration (added for Amazon/labour/licence billing) ---
+    billing_type = Column(String, default="payg")            # "payg" or "contract"
+    monthly_support_fee = Column(Float, default=0.0)          # used when billing_type == "contract"
+    payg_hourly_rate = Column(Float, default=0.0)             # used when billing_type == "payg"
+    amazon_markup_percent = Column(Float, default=0.0)        # e.g. 10.0 = +10% on top of Amazon cost price
+    license_billing_mode = Column(String, default="none")     # "none" | "all" | "selected"
+    licensed_skus_billed = Column(String, nullable=True)      # comma-separated sku_part_number list, only used when mode == "selected"
+
     contacts = relationship("Contact", back_populates="customer", cascade="all, delete-orphan")
     tickets = relationship("Ticket", back_populates="customer", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="customer", cascade="all, delete-orphan")
     licenses = relationship("LicenseAssignment", back_populates="customer", cascade="all, delete-orphan")
     endpoints = relationship("Endpoint", back_populates="customer", cascade="all, delete-orphan")
+    time_entries = relationship("TimeEntry", back_populates="customer", cascade="all, delete-orphan")
+    amazon_orders = relationship("AmazonOrder", back_populates="customer")
 
 
 class Contact(Base):
@@ -109,8 +120,8 @@ class Contact(Base):
     whatsapp_number = Column(String, nullable=True)
     role = Column(String, nullable=True)
     is_primary = Column(Boolean, default=False)
-    graph_user_id = Column(String, nullable=True)
-    source = Column(String, default="manual")
+    graph_user_id = Column(String, nullable=True)     # Entra ID object ID, used to safely re-sync without duplicating
+    source = Column(String, default="manual")          # "manual" or "graph_sync"
     last_synced_from_graph = Column(DateTime, nullable=True)
 
     customer = relationship("Customer", back_populates="contacts")
@@ -188,6 +199,13 @@ class Invoice(Base):
     due_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # --- Billing engine fields: identifies the recurring period this invoice
+    # covers, so the monthly generator can detect "already billed this
+    # period" and refuse to create a duplicate (critical for contract
+    # customers' fixed support fee, which has no other natural marker). ---
+    billing_period_start = Column(DateTime, nullable=True)
+    billing_period_end = Column(DateTime, nullable=True)
+
     customer = relationship("Customer", back_populates="invoices")
     line_items = relationship("InvoiceLineItem", back_populates="invoice", cascade="all, delete-orphan")
 
@@ -204,6 +222,78 @@ class InvoiceLineItem(Base):
     tax_type = Column(String, default="OUTPUT2")  # Xero UK 20% VAT on sales
 
     invoice = relationship("Invoice", back_populates="line_items")
+
+
+class TimeEntry(Base):
+    """A unit of billable (or non-billable) helpdesk labour, logged against
+    a ticket. PAYG customers are invoiced based on the sum of unbilled
+    billable hours each month; contract customers can still log time for
+    reporting/visibility even though it doesn't directly drive their
+    invoice total."""
+    __tablename__ = "time_entries"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    ticket_id = Column(String, ForeignKey("tickets.id"), nullable=True)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=False)
+    technician_name = Column(String, nullable=True)
+    work_date = Column(DateTime, default=datetime.utcnow)
+    hours = Column(Float, nullable=False)
+    description = Column(Text, nullable=True)
+    billable = Column(Boolean, default=True)
+    hourly_rate_override = Column(Float, nullable=True)  # overrides customer.payg_hourly_rate for this entry, if set
+    invoiced = Column(Boolean, default=False)
+    invoice_id = Column(String, ForeignKey("invoices.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    customer = relationship("Customer", back_populates="time_entries")
+    ticket = relationship("Ticket")
+
+
+class AmazonOrder(Base):
+    """An Amazon Business order, imported from a CSV export. Starts
+    unassigned; a technician assigns it to the customer it was purchased
+    for. Once included on a generated invoice, `invoiced` is set so it's
+    never billed twice."""
+    __tablename__ = "amazon_orders"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    amazon_order_id = Column(String, nullable=False, unique=True)  # Amazon's own order number - prevents duplicate imports
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=True)  # null until assigned
+    order_date = Column(DateTime, nullable=True)
+    total = Column(Float, default=0.0)  # cost price, as paid to Amazon
+    currency = Column(String, default="GBP")
+    description = Column(Text, nullable=True)
+    source = Column(String, default="csv_import")  # "csv_import" today; "api" reserved for future use
+    invoiced = Column(Boolean, default=False)
+    invoice_id = Column(String, ForeignKey("invoices.id"), nullable=True)
+    imported_at = Column(DateTime, default=datetime.utcnow)
+
+    customer = relationship("Customer", back_populates="amazon_orders")
+    line_items = relationship("AmazonOrderLineItem", back_populates="order", cascade="all, delete-orphan")
+
+
+class AmazonOrderLineItem(Base):
+    __tablename__ = "amazon_order_line_items"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    order_id = Column(String, ForeignKey("amazon_orders.id"), nullable=False)
+    description = Column(String, nullable=False)
+    quantity = Column(Float, default=1.0)
+    unit_price = Column(Float, default=0.0)
+
+    order = relationship("AmazonOrder", back_populates="line_items")
+
+
+class LicensePrice(Base):
+    """Monthly price to charge customers for a given Microsoft 365 SKU.
+    One global default row per SKU (customer_id = null) is used unless a
+    customer-specific override row exists for that same SKU."""
+    __tablename__ = "license_prices"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=True)  # null = global default price
+    sku_part_number = Column(String, nullable=False)
+    monthly_unit_price = Column(Float, default=0.0)
 
 
 # ---------------------------------------------------------------------------

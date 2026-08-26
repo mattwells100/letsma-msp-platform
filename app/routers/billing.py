@@ -1,3 +1,8 @@
+from datetime import datetime
+from app.services.billing_service import (
+generate_monthly_invoice_for_customer, generate_monthly_invoices_for_all_customers,
+    )
+
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -73,3 +78,27 @@ def get_invoice(invoice_id: str, db: Session = Depends(get_db)):
     if not invoice:
         raise HTTPException(404, "Invoice not found")
     return invoice
+
+
+from datetime import datetime
+from fastapi import Query
+
+
+@router.post("/generate-monthly-invoices")
+def generate_monthly_invoices(year: int = Query(...), month: int = Query(...), db=Depends(get_db)):
+    """
+    Generates one consolidated invoice per active customer for the given
+    calendar month (contract fee OR PAYG labour, + assigned Amazon
+    orders, + license costs). Safe to re-run: already-billed customers
+    for that exact month are automatically skipped, never double-billed.
+    """
+    period_start = datetime(year, month, 1)
+    period_end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    results = generate_monthly_invoices_for_all_customers(db, period_start, period_end)
+    return {
+        "period": f"{period_start.strftime('%B %Y')}",
+        "customers_processed": len(results),
+        "invoices_created": sum(1 for r in results if r["invoice_created"]),
+        "results": results,
+    }
+
