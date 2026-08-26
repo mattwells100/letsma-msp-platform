@@ -113,13 +113,21 @@ async def sync_licenses_for_customer(db: Session, customer: Customer):
 
 async def sync_contacts_for_customer(db, customer):
     """
-    Pulls active (enabled) AND licensed users from the customer's M365
-    tenant via Microsoft Graph and upserts them as helpdesk Contacts.
+    Pulls active (enabled), licensed, non-guest users from the customer's
+    M365 tenant via Microsoft Graph and upserts them as helpdesk Contacts.
 
-    Only users with at least one assigned Microsoft 365 license are
-    synced - this naturally excludes shared mailboxes, resource accounts,
-    and guest/unlicensed accounts that would otherwise clutter the
-    helpdesk contact list.
+    Exclusion rules (in order checked):
+      1. Disabled accounts (accountEnabled = false) are skipped.
+      2. Guest accounts (userType = 'Guest') are skipped explicitly. Note:
+         userType can be null for on-premises AD-synced accounts in hybrid
+         tenants (it's a cloud-only concept unless AD Connect is configured
+         to sync it) - we only skip when it's the literal string 'Guest',
+         never when it's null/missing, so legitimate synced staff are never
+         accidentally excluded.
+      3. Unlicensed accounts (no assignedLicenses) are skipped - this
+         catches shared mailboxes and resource accounts that slip through
+         the first two checks.
+      4. Accounts with no email at all are skipped (rare edge case).
     """
     if not customer.m365_tenant_id:
         raise ValueError(f"Customer '{customer.name}' has no m365_tenant_id configured.")
@@ -129,7 +137,7 @@ async def sync_contacts_for_customer(db, customer):
 
     select_fields = (
         "id,displayName,givenName,surname,mail,userPrincipalName,"
-        "businessPhones,mobilePhone,accountEnabled,assignedLicenses"
+        "businessPhones,mobilePhone,accountEnabled,assignedLicenses,userType"
     )
 
     async with httpx.AsyncClient() as client:
@@ -143,12 +151,17 @@ async def sync_contacts_for_customer(db, customer):
     created_count = 0
     updated_count = 0
     skipped_disabled_count = 0
+    skipped_guest_count = 0
     skipped_unlicensed_count = 0
     skipped_no_email_count = 0
 
     for user in users:
         if user.get("accountEnabled") is False:
             skipped_disabled_count += 1
+            continue
+
+        if user.get("userType") == "Guest":
+            skipped_guest_count += 1
             continue
 
         if not user.get("assignedLicenses"):
@@ -197,6 +210,7 @@ async def sync_contacts_for_customer(db, customer):
         "created": created_count,
         "updated": updated_count,
         "skipped_disabled": skipped_disabled_count,
+        "skipped_guest": skipped_guest_count,
         "skipped_unlicensed": skipped_unlicensed_count,
         "skipped_no_email": skipped_no_email_count,
         "total_from_graph": len(users),

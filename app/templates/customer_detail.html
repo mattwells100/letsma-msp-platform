@@ -142,7 +142,7 @@ async function syncContacts(e, customerId) {
                 <i class="bi bi-check-circle"></i>
                 Synced successfully: <strong>${data.created}</strong> new, <strong>${data.updated}</strong> updated
                 out of ${data.total_from_graph} users found in Microsoft 365.
-                <br><span class="small text-muted">Skipped: ${data.skipped_disabled} disabled, ${data.skipped_unlicensed} unlicensed, ${data.skipped_no_email} no email.</span>
+                <br><span class="small text-muted">Skipped: ${data.skipped_disabled} disabled, ${data.skipped_guest} guests, ${data.skipped_unlicensed} unlicensed, ${data.skipped_no_email} no email.</span>
             </div>`;
             setTimeout(() => window.location.reload(), 2500);
         } else {
@@ -162,7 +162,7 @@ function filterContactsTable() {
     rows.forEach(row => {
         const nameCell = row.cells[0];
         const emailCell = row.cells[1];
-        if (!nameCell || !emailCell) return;  // skip the "no contacts yet" placeholder row
+        if (!nameCell || !emailCell) return;
 
         const nameText = nameCell.textContent.toLowerCase();
         const emailText = emailCell.textContent.toLowerCase();
