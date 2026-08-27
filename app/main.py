@@ -14,15 +14,18 @@ from app.config import settings
 from app.routers import customers, tickets, billing, licenses, endpoints
 from app.routers import webhooks_whatsapp, webhooks_teams, auth_xero, portal
 from app.routers import admin_migrate, contacts_sync
+from app.routers import amazon, time_entries
 from app.routers import billing_config
+from app.routers import email_ingestion
+from app.scheduler import start_scheduler
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.APP_NAME,
     description="Unified MSP platform: customers, billing (Xero), Microsoft 365 "
-                 "license management, helpdesk with WhatsApp/Teams ticket logging, "
-                 "and endpoint monitoring.",
+                 "license management, helpdesk with WhatsApp/Teams/Email ticket "
+                 "logging, endpoint monitoring, and recurring billing.",
     version="1.0.0",
 )
 
@@ -35,6 +38,20 @@ app.include_router(billing.router)
 app.include_router(licenses.router)
 app.include_router(endpoints.router)
 
+# Contacts (Microsoft 365 sync) + one-off admin schema migration endpoint
+app.include_router(admin_migrate.router)
+app.include_router(contacts_sync.router)
+
+# Amazon order import/assignment + helpdesk labour time entries (billing engine)
+app.include_router(amazon.router)
+app.include_router(time_entries.router)
+
+# Per-customer billing configuration + license pricing
+app.include_router(billing_config.router)
+
+# Email-to-ticket ingestion (helpdesk@letsma.co.uk)
+app.include_router(email_ingestion.router)
+
 # Integration webhooks / OAuth
 app.include_router(webhooks_whatsapp.router)
 app.include_router(webhooks_teams.router)
@@ -42,9 +59,15 @@ app.include_router(auth_xero.router)
 
 # Server-rendered portal (dashboard + customer self-service)
 app.include_router(portal.router)
-app.include_router(admin_migrate.router)
-app.include_router(contacts_sync.router)
-app.include_router(billing_config.router)
+
+
+@app.on_event("startup")
+async def _on_startup():
+    """Starts the background scheduler that polls the helpdesk mailbox
+    every few minutes. Safe to call even if email-to-ticket hasn't been
+    configured yet - the scheduled job checks for credentials and skips
+    silently if they're not set."""
+    start_scheduler()
 
 
 @app.get("/healthz", tags=["System"])

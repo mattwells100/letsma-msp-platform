@@ -2,14 +2,15 @@
 SQLAlchemy ORM models for the Letsma MSP Platform.
 
 Modules covered:
-  - Customers & Contacts
+  - Customers & Contacts (incl. Microsoft 365 contact sync fields)
   - Helpdesk (Tickets, Comments, multi-channel Sources incl. WhatsApp/Teams/Portal/Email)
-  - Billing (Invoices, Line items, Xero sync state)
+  - Billing (Invoices, Line items, Xero sync state, recurring-billing engine)
   - Microsoft 365 License management
   - Endpoint monitoring (agents, heartbeats, alerts)
   - Staff/Technician users
   - Integration credential/token storage (OAuth tokens for Xero, Graph)
   - Helpdesk labour time tracking + Amazon order billing + licence pricing
+  - Email-to-ticket ingestion (excluded senders, auto-reply rules, processed emails)
 """
 import enum
 import uuid
@@ -88,7 +89,7 @@ class Customer(Base):
     whatsapp_number = Column(String, nullable=True)    # primary WhatsApp contact number
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # --- Billing engine configuration (added for Amazon/labour/licence billing) ---
+    # --- Billing engine configuration ---
     billing_type = Column(String, default="payg")            # "payg" or "contract"
     monthly_support_fee = Column(Float, default=0.0)          # used when billing_type == "contract"
     payg_hourly_rate = Column(Float, default=0.0)             # used when billing_type == "payg"
@@ -155,7 +156,7 @@ class Ticket(Base):
     priority = Column(Enum(TicketPriority), default=TicketPriority.NORMAL)
     source = Column(Enum(TicketSource), default=TicketSource.PORTAL)
     assigned_to = Column(String, ForeignKey("technicians.id"), nullable=True)
-    external_ref = Column(String, nullable=True)  # e.g. WhatsApp message id, Teams message id
+    external_ref = Column(String, nullable=True)  # e.g. WhatsApp message id, Teams message id, email message id
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
@@ -199,10 +200,9 @@ class Invoice(Base):
     due_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # --- Billing engine fields: identifies the recurring period this invoice
-    # covers, so the monthly generator can detect "already billed this
-    # period" and refuse to create a duplicate (critical for contract
-    # customers' fixed support fee, which has no other natural marker). ---
+    # Identifies the recurring period this invoice covers, so the monthly
+    # generator can detect "already billed this period" and refuse to
+    # create a duplicate.
     billing_period_start = Column(DateTime, nullable=True)
     billing_period_end = Column(DateTime, nullable=True)
 
@@ -393,6 +393,65 @@ class TeamsMessage(Base):
     direction = Column(String, default="inbound")
     body = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Email-to-ticket ingestion
+# ---------------------------------------------------------------------------
+class ExcludedEmailSender(Base):
+    """
+    A sender email address or domain pattern that should NEVER create a
+    helpdesk ticket automatically - e.g. newsletters, no-reply addresses,
+    or a specific person who keeps CC'ing the helpdesk by mistake.
+
+    pattern can be:
+      - an exact email address: "noreply@somevendor.com"
+      - a domain wildcard: "*@spamdomain.com" (blocks the whole domain)
+    Matching is case-insensitive.
+    """
+    __tablename__ = "excluded_email_senders"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    pattern = Column(String, nullable=False, unique=True)
+    reason = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AutoReplyRule(Base):
+    """
+    A simple keyword-triggered canned response. If an incoming helpdesk
+    email's subject or body contains ALL the words of any configured
+    trigger phrase (case-insensitive, any order), the configured reply is
+    sent back automatically. This is literal keyword matching, not AI -
+    intentionally simple and predictable.
+    """
+    __tablename__ = "auto_reply_rules"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    name = Column(String, nullable=False)                 # internal label, e.g. "Password reset FAQ"
+    trigger_keywords = Column(String, nullable=False)      # comma-separated phrases, e.g. "password reset,forgot password"
+    reply_subject = Column(String, nullable=False)
+    reply_body = Column(Text, nullable=False)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ProcessedEmail(Base):
+    """
+    Tracks every inbound helpdesk email already handled, keyed by its
+    Microsoft Graph message ID - so re-polling the mailbox never creates a
+    duplicate ticket for the same email.
+    """
+    __tablename__ = "processed_emails"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    graph_message_id = Column(String, nullable=False, unique=True)
+    ticket_id = Column(String, ForeignKey("tickets.id"), nullable=True)
+    sender_email = Column(String, nullable=True)
+    subject = Column(String, nullable=True)
+    was_excluded = Column(Boolean, default=False)
+    auto_reply_sent = Column(Boolean, default=False)
+    processed_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------

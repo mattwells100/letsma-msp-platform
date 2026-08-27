@@ -3,6 +3,7 @@ Server-rendered portal views (Jinja2 + Bootstrap) covering:
   - Internal technician dashboard (/dashboard)
   - Customer, ticket, billing, license, and endpoint list/detail pages
   - A simplified external customer-facing portal (/portal/{customer_id})
+  - Billing settings (customer billing config + license pricing)
 
 This keeps the MVP dependency-light (no separate frontend build step).
 For a production-grade UI, swap this for a React/Next.js SPA consuming the
@@ -61,8 +62,7 @@ def _contact_sort_key(contact):
     falls back to the first word of the 'name' field (manual contacts,
     which don't have first_name populated). Never returns None, so this
     is always safe to sort with (avoids a TypeError crash from comparing
-    None to a string, which a naive `sort(attribute='first_name')` in the
-    template would otherwise trigger for every manually-added contact).
+    None to a string).
     """
     if contact.first_name:
         return contact.first_name.strip().lower()
@@ -100,7 +100,15 @@ def ticket_detail_page(ticket_id: str, request: Request, db: Session = Depends(g
     ticket = db.query(models.Ticket).get(ticket_id)
     if not ticket:
         raise HTTPException(404, "Ticket not found")
-    return templates.TemplateResponse("ticket_detail.html", {"request": request, "ticket": ticket, "active_page": "tickets"})
+    time_entries = (
+        db.query(models.TimeEntry)
+        .filter_by(ticket_id=ticket_id)
+        .order_by(models.TimeEntry.work_date.desc())
+        .all()
+    )
+    return templates.TemplateResponse("ticket_detail.html", {
+        "request": request, "ticket": ticket, "time_entries": time_entries, "active_page": "tickets",
+    })
 
 
 @router.get("/billing")
@@ -110,26 +118,11 @@ def billing_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("billing.html", {"request": request, "invoices": invoices, "customers": customers, "active_page": "billing"})
 
 
-@router.get("/licenses")
-def licenses_page(request: Request, db: Session = Depends(get_db)):
-    customers = db.query(models.Customer).order_by(models.Customer.name).all()
-    summary_rows = db.query(models.TenantLicenseSummary).all()
-    totals = {}
-    for row in summary_rows:
-        totals.setdefault(row.friendly_name or row.sku_part_number, {"enabled": 0, "consumed": 0})
-        totals[row.friendly_name or row.sku_part_number]["enabled"] += row.enabled_units
-        totals[row.friendly_name or row.sku_part_number]["consumed"] += row.consumed_units
-    return templates.TemplateResponse("licenses.html", {"request": request, "customers": customers, "totals": totals, "active_page": "licenses"})
-
 @router.get("/billing-settings")
 def billing_settings_page(request: Request, db: Session = Depends(get_db)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     license_prices = db.query(models.LicensePrice).all()
 
-    # Collect the distinct set of SKUs seen anywhere (either already priced,
-    # or currently assigned to at least one customer) so the "add a new
-    # price" dropdown can suggest real SKUs instead of requiring the user
-    # to type an exact SKU code from memory.
     priced_skus = {p.sku_part_number for p in license_prices}
     assigned_skus = {
         row[0] for row in db.query(models.LicenseAssignment.sku_part_number).distinct().all()
@@ -143,6 +136,18 @@ def billing_settings_page(request: Request, db: Session = Depends(get_db)):
         "known_skus": known_skus,
         "active_page": "billing-settings",
     })
+
+
+@router.get("/licenses")
+def licenses_page(request: Request, db: Session = Depends(get_db)):
+    customers = db.query(models.Customer).order_by(models.Customer.name).all()
+    summary_rows = db.query(models.TenantLicenseSummary).all()
+    totals = {}
+    for row in summary_rows:
+        totals.setdefault(row.friendly_name or row.sku_part_number, {"enabled": 0, "consumed": 0})
+        totals[row.friendly_name or row.sku_part_number]["enabled"] += row.enabled_units
+        totals[row.friendly_name or row.sku_part_number]["consumed"] += row.consumed_units
+    return templates.TemplateResponse("licenses.html", {"request": request, "customers": customers, "totals": totals, "active_page": "licenses"})
 
 
 @router.get("/endpoints")
