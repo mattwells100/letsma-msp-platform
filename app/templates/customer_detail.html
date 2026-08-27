@@ -16,6 +16,11 @@
         </button>
     </div>
     <div class="col-md-3">
+        <button class="btn btn-outline-danger w-100" onclick="return resetSyncedContacts(event, '{{ customer.id }}')">
+            <i class="bi bi-trash"></i> Remove Synced Contacts
+        </button>
+    </div>
+    <div class="col-md-3">
         <a class="btn btn-outline-secondary w-100" href="/portal/{{ customer.id }}" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Open Customer Portal</a>
     </div>
 </div>
@@ -87,15 +92,21 @@
 </div>
 
 <div class="card stat-card p-3 mt-4">
-    <h5 class="page-title">Contacts</h5>
-    <table class="table table-sm align-middle">
-        <thead><tr><th>Name</th><th>Email</th><th>Business Phone</th><th>Mobile Phone</th><th>Role</th><th>Source</th></tr></thead>
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h5 class="page-title mb-0">Contacts</h5>
+        <div style="min-width: 240px;">
+            <input type="text" id="contactSearchBox" class="form-control form-control-sm"
+                   placeholder="Search contacts by name or email..."
+                   onkeyup="filterContactsTable()">
+        </div>
+    </div>
+    <table class="table table-sm align-middle" id="contactsTable">
+        <thead><tr><th>Name</th><th>Email</th><th>Mobile Phone</th><th>Role</th><th>Source</th></tr></thead>
         <tbody>
-        {% for c in customer.contacts %}
+        {% for c in sorted_contacts %}
             <tr>
                 <td>{{ c.name }}{% if c.is_primary %} <span class="badge bg-warning text-dark">Primary</span>{% endif %}</td>
                 <td>{{ c.email or '-' }}</td>
-                <td>{{ c.business_phone or c.phone or '-' }}</td>
                 <td>{{ c.mobile_phone or '-' }}</td>
                 <td>{{ c.role or '-' }}</td>
                 <td>
@@ -107,10 +118,11 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="6" class="text-muted">No contacts yet - add one manually or click "Sync Contacts" above (requires m365_tenant_id to be set).</td></tr>
+            <tr><td colspan="5" class="text-muted">No contacts yet - add one manually or click "Sync Contacts" above (requires m365_tenant_id to be set).</td></tr>
         {% endfor %}
         </tbody>
     </table>
+    <div id="noContactsMatch" class="text-muted small" style="display:none;">No contacts match your search.</div>
 </div>
 
 <script>
@@ -135,7 +147,7 @@ async function syncContacts(e, customerId) {
                 <i class="bi bi-check-circle"></i>
                 Synced successfully: <strong>${data.created}</strong> new, <strong>${data.updated}</strong> updated
                 out of ${data.total_from_graph} users found in Microsoft 365.
-                <br><span class="small text-muted">Skipped: ${data.skipped_disabled} disabled, ${data.skipped_unlicensed} unlicensed, ${data.skipped_no_email} no email.</span>
+                <br><span class="small text-muted">Skipped: ${data.skipped_disabled} disabled, ${data.skipped_guest} guests, ${data.skipped_unlicensed} unlicensed, ${data.skipped_no_email} no email.</span>
             </div>`;
             setTimeout(() => window.location.reload(), 2500);
         } else {
@@ -145,6 +157,50 @@ async function syncContacts(e, customerId) {
         resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0"><i class="bi bi-exclamation-triangle"></i> Sync failed: ${err}</div>`;
     }
     return false;
+}
+
+async function resetSyncedContacts(e, customerId) {
+    e.preventDefault();
+    if (!confirm('This will remove ALL Microsoft 365-synced contacts for this customer (manually-added contacts are kept). You can re-sync afterwards. Continue?')) {
+        return false;
+    }
+    const resultDiv = document.getElementById('contactsSyncResult');
+    resultDiv.innerHTML = '<div class="alert alert-info py-2 mb-0">Removing previously synced contacts...</div>';
+
+    try {
+        const resp = await fetch(`/api/contacts/synced/${customerId}`, {method: 'DELETE'});
+        const data = await resp.json();
+        if (resp.ok) {
+            resultDiv.innerHTML = `<div class="alert alert-success py-2 mb-0">Removed ${data.deleted_contacts} previously synced contact(s). Click "Sync Contacts" to repopulate.</div>`;
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">Failed: ${data.detail || JSON.stringify(data)}</div>`;
+        }
+    } catch (err) {
+        resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">Failed: ${err}</div>`;
+    }
+    return false;
+}
+
+function filterContactsTable() {
+    const query = document.getElementById('contactSearchBox').value.trim().toLowerCase();
+    const rows = document.querySelectorAll('#contactsTable tbody tr');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+        const nameCell = row.cells[0];
+        const emailCell = row.cells[1];
+        if (!nameCell || !emailCell) return;
+
+        const nameText = nameCell.textContent.toLowerCase();
+        const emailText = emailCell.textContent.toLowerCase();
+        const matches = nameText.includes(query) || emailText.includes(query);
+
+        row.style.display = matches ? '' : 'none';
+        if (matches) visibleCount++;
+    });
+
+    document.getElementById('noContactsMatch').style.display = (visibleCount === 0 && query !== '') ? '' : 'none';
 }
 </script>
 {% endblock %}
