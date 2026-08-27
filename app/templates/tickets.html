@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Helpdesk - Letsma MSP{% endblock %}
 {% block content %}
-<h2 class="page-title mb-4">Helpdesk Tickets</h2>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="page-title mb-0">Helpdesk Tickets</h2>
+    <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newTicketModal">
+        <i class="bi bi-plus-lg"></i> New Ticket
+    </button>
+</div>
+
 <div class="card stat-card p-3">
     <table class="table align-middle">
         <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Source</th><th>Priority</th><th>Status</th><th>Updated</th></tr></thead>
@@ -13,7 +19,7 @@
                 <td>{{ t.customer.name }}</td>
                 <td>
                     {% set src = t.source.value if t.source.value is defined else t.source %}
-                    {% if src == 'WhatsApp' %}<i class="bi bi-whatsapp text-success"></i>{% elif src == 'Teams' %}<i class="bi bi-microsoft-teams text-primary"></i>{% else %}<i class="bi bi-globe"></i>{% endif %}
+                    {% if src == 'WhatsApp' %}<i class="bi bi-whatsapp text-success"></i>{% elif src == 'Teams' %}<i class="bi bi-microsoft-teams text-primary"></i>{% elif src == 'Email' %}<i class="bi bi-envelope text-secondary"></i>{% else %}<i class="bi bi-globe"></i>{% endif %}
                     {{ src }}
                 </td>
                 <td><span class="badge badge-priority-{{ (t.priority.value if t.priority.value is defined else t.priority)|replace(' ','') }}">{{ t.priority.value if t.priority.value is defined else t.priority }}</span></td>
@@ -26,4 +32,64 @@
         </tbody>
     </table>
 </div>
+
+<div class="modal fade" id="newTicketModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">New Ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <form id="newTicketForm">
+          <div class="mb-2">
+            <label class="form-label">Customer</label>
+            <select class="form-select" name="customer_id" id="newTicketCustomerSelect" required>
+                <option value="">Loading customers...</option>
+            </select>
+          </div>
+          <div class="mb-2"><label class="form-label">Subject</label><input class="form-control" name="subject" required></div>
+          <div class="mb-2"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3"></textarea></div>
+          <div class="mb-2">
+            <label class="form-label">Priority</label>
+            <select class="form-select" name="priority">
+                <option>Low</option><option selected>Normal</option><option>High</option><option>Critical</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="submitNewTicket()">Create Ticket</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('newTicketModal').addEventListener('show.bs.modal', async () => {
+    const select = document.getElementById('newTicketCustomerSelect');
+    const resp = await fetch('/api/customers/');
+    const customers = await resp.json();
+    select.innerHTML = '<option value="">-- Select a customer --</option>' +
+        customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+});
+
+async function submitNewTicket() {
+    const form = document.getElementById('newTicketForm');
+    const fd = new FormData(form);
+    const payload = {
+        customer_id: fd.get('customer_id'),
+        subject: fd.get('subject'),
+        description: fd.get('description'),
+        priority: fd.get('priority'),
+        source: 'Portal',
+    };
+    if (!payload.customer_id) { alert('Please select a customer'); return; }
+    const resp = await fetch('/api/tickets/', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    if (resp.ok) {
+        const ticket = await resp.json();
+        window.location.href = `/tickets/${ticket.id}`;
+    } else {
+        alert('Failed to create ticket: ' + await resp.text());
+    }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 {% endblock %}

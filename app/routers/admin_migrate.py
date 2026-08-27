@@ -1,15 +1,15 @@
 """
-A small, protected, idempotent migration endpoint that adds new columns
-and tables to the live Postgres database, since there's no Alembic set up
-and SSH isn't available in this container image.
+A small, protected, idempotent set of migration endpoints that add new
+columns and tables to the live Postgres database, since there's no
+Alembic set up and SSH isn't available in this container image.
 
 Safe to call multiple times - uses "IF NOT EXISTS" throughout, so it will
 never error or duplicate columns/tables on repeat calls.
 
 Security note: this reuses AGENT_API_KEY as a simple shared-secret guard
 since it already exists in Key Vault. Once Stage 1 auth (Entra ID on the
-whole dashboard) is in place, this endpoint is naturally covered by that
-too.
+whole dashboard) is in place, these endpoints are naturally covered by
+that too.
 """
 from fastapi import APIRouter, Header, HTTPException, Depends
 from sqlalchemy import text
@@ -108,6 +108,45 @@ def migrate_billing_schema(db: Session = Depends(get_db), _=Depends(_check_admin
             customer_id VARCHAR REFERENCES customers(id),
             sku_part_number VARCHAR NOT NULL,
             monthly_unit_price FLOAT DEFAULT 0.0
+        )""",
+    ]
+    applied = []
+    for stmt in statements:
+        db.execute(text(stmt))
+        applied.append(stmt)
+    db.commit()
+    return {"ok": True, "statements_applied": applied}
+
+
+@router.post("/migrate-email-ticket-schema")
+def migrate_email_ticket_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    """Adds the email-to-ticket ingestion tables (excluded senders,
+    auto-reply rules, processed-email dedup tracking)."""
+    statements = [
+        """CREATE TABLE IF NOT EXISTS excluded_email_senders (
+            id VARCHAR PRIMARY KEY,
+            pattern VARCHAR NOT NULL UNIQUE,
+            reason VARCHAR,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS auto_reply_rules (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            trigger_keywords VARCHAR NOT NULL,
+            reply_subject VARCHAR NOT NULL,
+            reply_body TEXT NOT NULL,
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS processed_emails (
+            id VARCHAR PRIMARY KEY,
+            graph_message_id VARCHAR NOT NULL UNIQUE,
+            ticket_id VARCHAR REFERENCES tickets(id),
+            sender_email VARCHAR,
+            subject VARCHAR,
+            was_excluded BOOLEAN DEFAULT FALSE,
+            auto_reply_sent BOOLEAN DEFAULT FALSE,
+            processed_at TIMESTAMP DEFAULT NOW()
         )""",
     ]
     applied = []

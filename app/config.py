@@ -4,10 +4,10 @@ Central configuration loader.
 Reads from environment variables (populated via .env locally by
 python-dotenv). In Azure, if a KEY_VAULT_URL app setting is present, secret
 values are instead pulled from Azure Key Vault at startup using the App
-Service's managed identity (no credentials stored anywhere) - see
-docs/DEPLOYMENT.md for setup. Any Key Vault secret found simply overrides
-the corresponding environment variable of the same name (with '-' instead
-of '_', since Key Vault secret names can't contain underscores).
+Service's managed identity (no credentials stored anywhere). Any Key Vault
+secret found simply overrides the corresponding environment variable of
+the same name (with '-' instead of '_', since Key Vault secret names
+can't contain underscores).
 """
 import os
 from dotenv import load_dotenv
@@ -23,6 +23,7 @@ _SECRET_NAMES = [
     "WHATSAPP-ACCESS-TOKEN", "WHATSAPP-VERIFY-TOKEN",
     "TEAMS-INCOMING-WEBHOOK-URL", "TEAMS-OUTGOING-WEBHOOK-SECRET",
     "AGENT-API-KEY",
+    "HELPDESK-GRAPH-TENANT-ID", "HELPDESK-GRAPH-CLIENT-ID", "HELPDESK-GRAPH-CLIENT-SECRET",
 ]
 
 if KEY_VAULT_URL:
@@ -50,7 +51,7 @@ class Settings:
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "ChangeMe123!")
     BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")
 
-    # Microsoft Graph / Entra ID
+    # Microsoft Graph / Entra ID (per-CUSTOMER tenant - license & contact sync)
     GRAPH_TENANT_ID: str = os.getenv("GRAPH_TENANT_ID", "")
     GRAPH_CLIENT_ID: str = os.getenv("GRAPH_CLIENT_ID", "")
     GRAPH_CLIENT_SECRET: str = os.getenv("GRAPH_CLIENT_SECRET", "")
@@ -59,7 +60,7 @@ class Settings:
     XERO_CLIENT_ID: str = os.getenv("XERO_CLIENT_ID", "")
     XERO_CLIENT_SECRET: str = os.getenv("XERO_CLIENT_SECRET", "")
     XERO_REDIRECT_URI: str = os.getenv("XERO_REDIRECT_URI", "http://localhost:8000/auth/xero/callback")
-    XERO_SCOPES: str = os.getenv("XERO_SCOPES", "offline_access accounting.transactions accounting.contacts accounting.settings")
+    XERO_SCOPES: str = os.getenv("XERO_SCOPES", "offline_access accounting.contacts accounting.settings accounting.invoices")
 
     # WhatsApp
     WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "letsma-verify-token")
@@ -74,6 +75,14 @@ class Settings:
     # Agent
     AGENT_API_KEY: str = os.getenv("AGENT_API_KEY", "letsma-agent-shared-key")
     AGENT_OFFLINE_THRESHOLD_MINUTES: int = int(os.getenv("AGENT_OFFLINE_THRESHOLD_MINUTES", "15"))
+
+    # Email-to-ticket (helpdesk@letsma.co.uk polling) - separate app
+    # registration living in Letsma's OWN tenant, restricted via an
+    # Exchange Application Access Policy to just the helpdesk mailbox.
+    HELPDESK_GRAPH_TENANT_ID: str = os.getenv("HELPDESK_GRAPH_TENANT_ID", "")
+    HELPDESK_GRAPH_CLIENT_ID: str = os.getenv("HELPDESK_GRAPH_CLIENT_ID", "")
+    HELPDESK_GRAPH_CLIENT_SECRET: str = os.getenv("HELPDESK_GRAPH_CLIENT_SECRET", "")
+    HELPDESK_MAILBOX_ADDRESS: str = os.getenv("HELPDESK_MAILBOX_ADDRESS", "helpdesk@letsma.co.uk")
 
 
 settings = Settings()
