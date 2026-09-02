@@ -45,6 +45,72 @@
                 {% endfor %}
             </select>
         </div>
+<div class="card stat-card p-3 mt-3">
+    <h6 class="page-title"><i class="bi bi-stars"></i> AI-Drafted Reply</h6>
+    <p class="small text-muted mb-2">Generates a suggested reply based on this ticket's description and conversation so far. Always review and edit before sending - nothing is posted automatically.</p>
+    <button class="btn btn-sm btn-outline-primary w-100" onclick="draftAiReply()" id="draftAiBtn">
+        <i class="bi bi-magic"></i> Draft Reply with AI
+    </button>
+    <div id="aiDraftResult" class="mt-2" style="display:none;">
+        <textarea class="form-control form-control-sm" id="aiDraftText" rows="6"></textarea>
+        <div class="d-flex gap-2 mt-2">
+            <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="copyAiDraftToReplyBox()">
+                <i class="bi bi-clipboard-check"></i> Use This Draft
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="draftAiReply()" title="Generate a different suggestion">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+    </div>
+    <div id="aiDraftError" class="mt-2 small"></div>
+</div>
+
+<script>
+async function draftAiReply() {
+    const btn = document.getElementById('draftAiBtn');
+    const resultDiv = document.getElementById('aiDraftResult');
+    const errorDiv = document.getElementById('aiDraftError');
+    const originalBtnHtml = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating...';
+    errorDiv.innerHTML = '';
+    resultDiv.style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/ai-assist/tickets/{{ ticket.id }}/draft-reply', {method: 'POST'});
+        const data = await resp.json();
+
+        if (resp.ok) {
+            document.getElementById('aiDraftText').value = data.draft_reply;
+            resultDiv.style.display = '';
+        } else {
+            errorDiv.innerHTML = `<div class="alert alert-warning py-2 mb-0">${data.detail || 'Failed to generate a draft.'}</div>`;
+        }
+    } catch (err) {
+        errorDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">Failed: ${err}</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalBtnHtml;
+    }
+    return false;
+}
+
+function copyAiDraftToReplyBox() {
+    const draftText = document.getElementById('aiDraftText').value;
+    // Reuses the existing reply textarea already on this page (the
+    // "Add a reply or internal note..." box in the Activity card) -
+    // the technician still has to review/edit and click Post themselves.
+    const replyBox = document.querySelector('textarea[name="message"]');
+    if (replyBox) {
+        replyBox.value = draftText;
+        replyBox.scrollIntoView({behavior: 'smooth', block: 'center'});
+        replyBox.focus();
+    } else {
+        alert('Could not find the reply box - please copy the draft manually.');
+    }
+}
+</script>
 
         <div class="card stat-card p-3 mt-3">
             <h6 class="page-title">Log Time (PAYG Billing)</h6>

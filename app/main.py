@@ -21,6 +21,7 @@ from app.routers import billing_config
 from app.routers import email_ingestion
 from app.routers import purchases
 from app.scheduler import start_scheduler
+from app.routers import ai_assist
 
 Base.metadata.create_all(bind=engine)
 
@@ -64,7 +65,7 @@ app.include_router(auth_xero.router)
 
 # Server-rendered portal (dashboard + customer self-service)
 app.include_router(portal.router)
-
+app.include_router(ai_assist.router)
 
 @app.on_event("startup")
 async def _on_startup():
