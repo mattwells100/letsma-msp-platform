@@ -108,10 +108,10 @@
             <h5 class="page-title">Microsoft 365 Licence Prices</h5>
             <p class="small text-muted">Sell price is what you charge the customer per seat/month. Cost price is what Letsma pays (e.g. your CSP cost) - used only for profitability reporting, never billed.</p>
             <table class="table table-sm align-middle" id="licensePricesTable">
-                <thead><tr><th>SKU</th><th>Scope</th><th>Sell</th><th>Cost</th><th>Margin</th></tr></thead>
+                <thead><tr><th>SKU</th><th>Scope</th><th>Sell</th><th>Cost</th><th>Margin</th><th></th></tr></thead>
                 <tbody>
                 {% for p in license_prices %}
-                    <tr>
+                    <tr data-price-id="{{ p.id }}">
                         <td>{{ p.sku_part_number }}</td>
                         <td>
                             {% if p.customer_id %}
@@ -125,9 +125,14 @@
                         <td>£{{ '%.2f'|format(p.monthly_unit_price) }}</td>
                         <td>£{{ '%.2f'|format(p.cost_price or 0) }}</td>
                         <td>£{{ '%.2f'|format(p.monthly_unit_price - (p.cost_price or 0)) }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger delete-price-btn" title="Delete this price">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="5" class="text-muted">No prices set yet.</td></tr>
+                    <tr><td colspan="6" class="text-muted">No prices set yet.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -309,7 +314,9 @@ async function saveLicensePrice(e) {
         });
         const data = await resp.json();
         if (resp.ok) {
-            showAlert(`Saved price for <strong>${data.sku_part_number}</strong> (${data.scope}): sell £${data.monthly_unit_price.toFixed(2)}/mo, cost £${data.cost_price.toFixed(2)}/mo`, 'success');
+            const sellStr = (typeof data.monthly_unit_price === 'number') ? data.monthly_unit_price.toFixed(2) : '?';
+            const costStr = (typeof data.cost_price === 'number') ? data.cost_price.toFixed(2) : '0.00';
+            showAlert(`Saved price for <strong>${data.sku_part_number}</strong> (${data.scope}): sell £${sellStr}/mo, cost £${costStr}/mo`, 'success');
             setTimeout(() => window.location.reload(), 1200);
         } else {
             showAlert(`Failed to save price: ${data.detail || JSON.stringify(data)}`, 'danger');
@@ -319,6 +326,32 @@ async function saveLicensePrice(e) {
     }
     return false;
 }
+
+document.querySelectorAll('.delete-price-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const row = btn.closest('tr');
+        const priceId = row.dataset.priceId;
+        const skuName = row.cells[0].textContent.trim();
+        const scopeName = row.cells[1].textContent.trim();
+
+        if (!confirm(`Delete the price for "${skuName}" (${scopeName})? This cannot be undone - if this is a customer override, that customer will fall back to the global default price for this SKU.`)) {
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/api/billing-config/license-prices/${priceId}`, {method: 'DELETE'});
+            const data = await resp.json();
+            if (resp.ok) {
+                showAlert('Price deleted.', 'success');
+                row.remove();
+            } else {
+                showAlert(`Failed to delete: ${data.detail || JSON.stringify(data)}`, 'danger');
+            }
+        } catch (err) {
+            showAlert(`Failed to delete: ${err}`, 'danger');
+        }
+    });
+});
 
 async function loadProfitability() {
     const summaryDiv = document.getElementById('profitabilitySummary');
