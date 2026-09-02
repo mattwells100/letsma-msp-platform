@@ -201,7 +201,7 @@ def migrate_purchasing_schema(db: Session = Depends(get_db), _=Depends(_check_ad
     db.commit()
     return {"ok": True, "statements_applied": applied}
 
-router.post("/migrate-price-term-schema")
+@router.post("/migrate-price-term-schema")
 def migrate_price_term_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
     """
     Adds LicensePrice.price_term / entered_sell_price / entered_cost_price
