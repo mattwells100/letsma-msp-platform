@@ -489,3 +489,5 @@ class OAuthToken(Base):
     expires_at = Column(DateTime, nullable=True)
     scope = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+license_term_commitment = Column(String, default="monthly")
