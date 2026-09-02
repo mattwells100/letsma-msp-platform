@@ -18,9 +18,16 @@ service is instead built for gpt-5-mini (GA, scheduled retirement not
 until Feb 2027), which is also cheaper per-token than gpt-4.1-mini.
 
 gpt-5-series models are "reasoning models" on the Chat Completions API
-and behave differently from older models: they do NOT support
-temperature/top_p/penalty parameters, and use max_completion_tokens
-instead of max_tokens. This payload is built accordingly.
+and behave differently from older models in two important ways:
+  1. They do NOT support temperature/top_p/penalty parameters.
+  2. They spend part of max_completion_tokens on invisible internal
+     "reasoning tokens" BEFORE writing the visible reply - if the budget
+     is too low, the model can use it all up thinking and return an
+     EMPTY string with no error (this is a widely-reported gotcha, not
+     a bug in this code). max_completion_tokens is therefore set
+     generously here (2000) to comfortably cover both the reasoning
+     overhead and a genuinely useful reply, rather than the ~400 that
+     would be typical for an older non-reasoning chat model.
 """
 import httpx
 
@@ -65,6 +72,11 @@ async def draft_ticket_reply(ticket_subject: str, ticket_description: str, custo
     Returns the suggested reply text as a plain string. Raises on any
     HTTP/config error - the caller is expected to surface this clearly
     rather than silently falling back to something misleading.
+
+    If Azure genuinely returns an empty string even with a generous
+    token budget (e.g. if a future model needs even more headroom),
+    this raises a clear RuntimeError rather than silently returning ""
+    to the technician, which would look like the button just didn't work.
     """
     if not settings.AZURE_OPENAI_ENDPOINT or not settings.AZURE_OPENAI_API_KEY or not settings.AZURE_OPENAI_DEPLOYMENT_NAME:
         raise RuntimeError(
@@ -85,15 +97,18 @@ async def draft_ticket_reply(ticket_subject: str, ticket_description: str, custo
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": context},
         ],
-        # gpt-5-series models are "reasoning models" on this API and do
-        # NOT support temperature/top_p/penalty parameters - omitting
-        # temperature entirely (rather than sending a default) avoids an
-        # "unsupported parameter" error. max_completion_tokens replaces
-        # max_tokens for these models.
-        "max_completion_tokens": 400,
+        # gpt-5-series reasoning models do NOT support temperature/top_p/
+        # penalty parameters, and use max_completion_tokens instead of
+        # max_tokens. This budget is set generously (2000, not ~400)
+        # because reasoning models consume part of it on invisible
+        # internal reasoning before writing the visible reply - too low
+        # a budget causes an EMPTY (but technically successful, no
+        # error) response, which is a widely-reported gotcha with these
+        # models rather than a bug in this integration.
+        "max_completion_tokens": 2000,
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=45.0) as client:
         resp = await client.post(
             url,
             headers={"api-key": settings.AZURE_OPENAI_API_KEY, "Content-Type": "application/json"},
@@ -102,4 +117,15 @@ async def draft_ticket_reply(ticket_subject: str, ticket_description: str, custo
         resp.raise_for_status()
         data = resp.json()
 
-    return data["choices"][0]["message"]["content"].strip()
+    draft = data["choices"][0]["message"]["content"].strip()
+
+    if not draft:
+        finish_reason = data["choices"][0].get("finish_reason", "unknown")
+        usage = data.get("usage", {})
+        raise RuntimeError(
+            f"Azure OpenAI returned an empty reply (finish_reason={finish_reason}, "
+            f"usage={usage}). This usually means the model used its entire token "
+            f"budget on internal reasoning - try again, or contact support if this persists."
+        )
+
+    return draft
