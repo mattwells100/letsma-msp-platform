@@ -200,3 +200,29 @@ def migrate_purchasing_schema(db: Session = Depends(get_db), _=Depends(_check_ad
         applied.append(stmt)
     db.commit()
     return {"ok": True, "statements_applied": applied}
+
+router.post("/migrate-price-term-schema")
+def migrate_price_term_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    """
+    Adds LicensePrice.price_term / entered_sell_price / entered_cost_price
+    - lets a licence price be entered as either a MONTHLY or ANNUAL
+    commitment figure (NCE supports both, with annual usually discounted).
+    monthly_unit_price/cost_price remain the normalized monthly-equivalent
+    actually used for billing; the new columns store what was originally
+    typed in, purely for display.
+    """
+    statements = [
+        "ALTER TABLE license_prices ADD COLUMN IF NOT EXISTS price_term VARCHAR DEFAULT 'monthly'",
+        "ALTER TABLE license_prices ADD COLUMN IF NOT EXISTS entered_sell_price FLOAT",
+        "ALTER TABLE license_prices ADD COLUMN IF NOT EXISTS entered_cost_price FLOAT",
+        # Backfill existing rows so they display correctly (as if always entered monthly)
+        "UPDATE license_prices SET entered_sell_price = monthly_unit_price WHERE entered_sell_price IS NULL",
+        "UPDATE license_prices SET entered_cost_price = cost_price WHERE entered_cost_price IS NULL",
+    ]
+    applied = []
+    for stmt in statements:
+        db.execute(text(stmt))
+        applied.append(stmt)
+    db.commit()
+    return {"ok": True, "statements_applied": applied}
+

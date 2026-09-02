@@ -114,9 +114,9 @@
     <div class="col-lg-5">
         <div class="card stat-card p-3 mb-4">
             <h5 class="page-title">Microsoft 365 Licence Prices</h5>
-            <p class="small text-muted">Sell price is what you charge the customer per seat/month. Cost price is what Letsma pays (e.g. your CSP cost) - used only for profitability reporting, never billed.</p>
+            <p class="small text-muted">Enter the price exactly as quoted - monthly OR annual commitment. It's automatically converted to a monthly-equivalent for billing (cost price is for profitability reporting only, never billed).</p>
             <table class="table table-sm align-middle" id="licensePricesTable">
-                <thead><tr><th>SKU</th><th>Scope</th><th>Sell</th><th>Cost</th><th>Margin</th><th></th></tr></thead>
+                <thead><tr><th>SKU</th><th>Scope</th><th>Entered</th><th>Monthly Equiv.</th><th>Margin/mo</th><th></th></tr></thead>
                 <tbody>
                 {% for p in license_prices %}
                     <tr data-price-id="{{ p.id }}">
@@ -130,9 +130,12 @@
                                 <span class="badge bg-secondary">Global default</span>
                             {% endif %}
                         </td>
-                        <td>£{{ '%.2f'|format(p.monthly_unit_price) }}</td>
-                        <td>£{{ '%.2f'|format(p.cost_price or 0) }}</td>
-                        <td>£{{ '%.2f'|format(p.monthly_unit_price - (p.cost_price or 0)) }}</td>
+                        <td>
+                            £{{ '%.2f'|format(p.entered_sell_price if p.entered_sell_price is not none else (p.monthly_unit_price or 0)) }}
+                            <span class="badge {{ 'bg-primary' if (p.price_term or 'monthly') == 'annual' else 'bg-light text-dark' }}">{{ (p.price_term or 'monthly')[:3] }}</span>
+                        </td>
+                        <td>£{{ '%.2f'|format(p.monthly_unit_price or 0) }}/mo</td>
+                        <td>£{{ '%.2f'|format((p.monthly_unit_price or 0) - (p.cost_price or 0)) }}</td>
                         <td>
                             <button class="btn btn-sm btn-outline-danger delete-price-btn" title="Delete this price">
                                 <i class="bi bi-trash"></i>
@@ -155,16 +158,24 @@
                         {% for sku in known_skus %}<option value="{{ sku }}">{% endfor %}
                     </datalist>
                 </div>
+                <div class="mb-2">
+                    <label class="form-label small">Billing term for the price below</label>
+                    <select class="form-select form-select-sm" id="newPriceTerm" onchange="updatePriceLabels()">
+                        <option value="monthly">Monthly commitment (price per month)</option>
+                        <option value="annual">Annual commitment (price per year)</option>
+                    </select>
+                </div>
                 <div class="row g-2">
                     <div class="col-6">
-                        <label class="form-label small">Sell price (£/mo)</label>
+                        <label class="form-label small" id="sellPriceLabel">Sell price (£/mo)</label>
                         <input type="number" step="0.01" class="form-control form-control-sm" id="newPriceValue" required>
                     </div>
                     <div class="col-6">
-                        <label class="form-label small">Cost price (£/mo)</label>
+                        <label class="form-label small" id="costPriceLabel">Cost price (£/mo)</label>
                         <input type="number" step="0.01" class="form-control form-control-sm" id="newCostValue" placeholder="0.00">
                     </div>
                 </div>
+                <div class="small text-muted mt-1" id="annualHint" style="display:none;">Enter the total annual commitment price - it will be converted to a monthly-equivalent rate automatically for billing.</div>
                 <div class="mb-2 mt-2">
                     <label class="form-label small">Customer (leave blank for global default)</label>
                     <select class="form-select form-select-sm" id="newPriceCustomer">
@@ -180,7 +191,7 @@
 
         <div class="card stat-card p-3 mb-4">
             <h5 class="page-title">Licence Profitability</h5>
-            <p class="small text-muted">Based on currently assigned seats and configured prices. Term column shows each customer's manually-set commitment (Microsoft doesn't expose this via API).</p>
+            <p class="small text-muted">Based on currently assigned seats and configured prices (always shown as monthly-equivalent, regardless of the term originally entered).</p>
             <div id="profitabilitySummary" class="mb-2"></div>
             <button class="btn btn-sm btn-outline-primary w-100" onclick="loadProfitability()">Refresh Report</button>
             <div class="table-responsive mt-2">
@@ -308,14 +319,23 @@ async function createPurchase(e) {
     return false;
 }
 
+function updatePriceLabels() {
+    const term = document.getElementById('newPriceTerm').value;
+    const isAnnual = term === 'annual';
+    document.getElementById('sellPriceLabel').textContent = isAnnual ? 'Sell price (£/year)' : 'Sell price (£/mo)';
+    document.getElementById('costPriceLabel').textContent = isAnnual ? 'Cost price (£/year)' : 'Cost price (£/mo)';
+    document.getElementById('annualHint').style.display = isAnnual ? '' : 'none';
+}
+
 async function saveLicensePrice(e) {
     e.preventDefault();
     const sku = document.getElementById('newPriceSku').value.trim();
+    const priceTerm = document.getElementById('newPriceTerm').value;
     const price = parseFloat(document.getElementById('newPriceValue').value);
     const costPrice = parseFloat(document.getElementById('newCostValue').value) || 0;
     const customerId = document.getElementById('newPriceCustomer').value || null;
 
-    const payload = {sku_part_number: sku, monthly_unit_price: price, cost_price: costPrice};
+    const payload = {sku_part_number: sku, price: price, price_term: priceTerm, cost_price: costPrice};
     if (customerId) payload.customer_id = customerId;
 
     try {
@@ -324,10 +344,11 @@ async function saveLicensePrice(e) {
         });
         const data = await resp.json();
         if (resp.ok) {
-            const sellStr = (typeof data.monthly_unit_price === 'number') ? data.monthly_unit_price.toFixed(2) : '?';
-            const costStr = (typeof data.cost_price === 'number') ? data.cost_price.toFixed(2) : '0.00';
-            showAlert(`Saved price for <strong>${data.sku_part_number}</strong> (${data.scope}): sell £${sellStr}/mo, cost £${costStr}/mo`, 'success');
-            setTimeout(() => window.location.reload(), 1200);
+            const enteredStr = (typeof data.entered_price === 'number') ? data.entered_price.toFixed(2) : '?';
+            const monthlyStr = (typeof data.monthly_unit_price === 'number') ? data.monthly_unit_price.toFixed(2) : '?';
+            const termUnit = data.price_term === 'annual' ? '/year' : '/mo';
+            showAlert(`Saved price for <strong>${data.sku_part_number}</strong> (${data.scope}): £${enteredStr}${termUnit} = £${monthlyStr}/mo equivalent`, 'success');
+            setTimeout(() => window.location.reload(), 1500);
         } else {
             showAlert(`Failed to save price: ${data.detail || JSON.stringify(data)}`, 'danger');
         }
