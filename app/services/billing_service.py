@@ -1,14 +1,15 @@
 """
-app/services/billing_service.py  (NEW FILE)
+app/services/billing_service.py
 
 Generates one consolidated monthly Invoice per customer, combining:
   - Contract customers: a fixed monthly support fee line.
   - PAYG customers: a helpdesk labour line, summing all unbilled billable
     TimeEntry hours in the period (using each entry's rate override if
     set, otherwise the customer's payg_hourly_rate).
-  - Both billing types: one line per unbilled AmazonOrder assigned to the
-    customer, with the customer's amazon_markup_percent applied on top of
-    the cost price.
+  - Both billing types: one line per unbilled purchase order assigned to
+    the customer (from ANY supplier - Amazon, CDW, Ingram Micro, etc, via
+    the general purchasing module), with the customer's amazon_markup_percent
+    applied on top of the cost price.
   - Both billing types: a license line, if license_billing_mode is not
     "none" - either all currently-assigned licenses, or only the SKUs
     listed in licensed_skus_billed, priced via LicensePrice (customer-
@@ -19,8 +20,7 @@ Generates one consolidated monthly Invoice per customer, combining:
 All money values are rounded to 2 decimal places at the point each line
 item is created, and the invoice's subtotal/tax/total are computed by
 summing those already-rounded line amounts - this avoids floating-point
-drift accumulating across many small lines (see the rounding tests in
-this module's test suite for why this matters).
+drift accumulating across many small lines.
 """
 from datetime import datetime
 from collections import defaultdict
@@ -36,7 +36,9 @@ def _round2(value: float) -> float:
 
 
 def _get_license_price(db, customer_id: str, sku_part_number: str):
-    """Customer-specific override takes priority over the global default row."""
+    """Customer-specific override takes priority over the global default row.
+    Returns the SELL price (monthly_unit_price) - cost_price is never billed
+    to customers, it's for internal profitability reporting only."""
     override = db.query(LicensePrice).filter_by(customer_id=customer_id, sku_part_number=sku_part_number).first()
     if override:
         return override.monthly_unit_price
@@ -55,7 +57,7 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
     user rather than having costs silently go unbilled with no trace.
 
     Returns None (no invoice created) if there is nothing to bill - i.e.
-    a PAYG customer with zero unbilled hours/orders and no license
+    a PAYG customer with zero unbilled hours/purchases and no license
     billing configured. Contract customers always get an invoice (the
     support fee is due regardless of usage), unless the fee is exactly 0.
 
@@ -63,9 +65,9 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
     exact same billing_period_start, this function returns None instead
     of creating a duplicate. This is essential for contract customers in
     particular - their monthly support fee line has no other "already
-    billed" marker the way individual TimeEntry/AmazonOrder rows do, so
-    without this check, running the generator twice for the same month
-    would double-bill the fixed fee.
+    billed" marker the way individual TimeEntry/purchase order rows do,
+    so without this check, running the generator twice for the same
+    month would double-bill the fixed fee.
     """
     already_generated = db.query(Invoice).filter_by(
         customer_id=customer.id, billing_period_start=period_start
@@ -82,6 +84,7 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
                 f"Monthly Support Fee - {period_start.strftime('%B %Y')}",
                 1, _round2(customer.monthly_support_fee),
             ))
+        unbilled_entries = []  # contract customers' time entries don't drive their invoice total
     else:  # payg
         unbilled_entries = db.query(TimeEntry).filter(
             TimeEntry.customer_id == customer.id,
@@ -106,6 +109,7 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
                     _round2(hours), _round2(rate),
                 ))
 
+    # Purchase orders (any supplier - Amazon, CDW, Ingram Micro, manual entries, etc.)
     unbilled_orders = db.query(AmazonOrder).filter(
         AmazonOrder.customer_id == customer.id,
         AmazonOrder.invoiced == False,
@@ -115,8 +119,9 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
     markup_multiplier = 1 + (customer.amazon_markup_percent or 0) / 100
     for order in unbilled_orders:
         billed_price = _round2(order.total * markup_multiplier)
-        desc = order.description or f"Amazon order {order.amazon_order_id}"
-        line_items_data.append((f"Amazon purchase - {desc} (#{order.amazon_order_id})", 1, billed_price))
+        desc = order.description or f"Order {order.amazon_order_id}"
+        supplier_label = order.supplier or "Amazon"
+        line_items_data.append((f"{supplier_label} purchase - {desc} (#{order.amazon_order_id})", 1, billed_price))
 
     if customer.license_billing_mode and customer.license_billing_mode != "none":
         assignments = db.query(LicenseAssignment).filter_by(customer_id=customer.id).all()
@@ -165,7 +170,7 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
     for description, qty, unit_price in line_items_data:
         db.add(InvoiceLineItem(invoice_id=invoice.id, description=description, quantity=qty, unit_price=unit_price))
 
-    for e in unbilled_entries if customer.billing_type == "payg" else []:
+    for e in unbilled_entries:
         e.invoiced = True
         e.invoice_id = invoice.id
 
@@ -179,9 +184,10 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
 
 
 def generate_monthly_invoices_for_all_customers(db, period_start: datetime, period_end: datetime):
-    """Runs generate_monthly_invoice_for_customer for every customer,
-    returning a summary list so the caller can report what was created,
-    what was skipped (nothing to bill), and any per-customer warnings."""
+    """Runs generate_monthly_invoice_for_customer for every active
+    customer, returning a summary list so the caller can report what was
+    created, what was skipped (nothing to bill), and any per-customer
+    warnings."""
     results = []
     customers = db.query(Customer).filter_by(status="Active").all()
     for customer in customers:

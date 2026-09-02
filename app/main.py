@@ -1,4 +1,6 @@
 """
+app/main.py
+
 Letsma MSP Platform - main application entrypoint.
 
 Run locally with:
@@ -17,6 +19,7 @@ from app.routers import admin_migrate, contacts_sync
 from app.routers import amazon, time_entries
 from app.routers import billing_config
 from app.routers import email_ingestion
+from app.routers import purchases
 from app.scheduler import start_scheduler
 
 Base.metadata.create_all(bind=engine)
@@ -25,7 +28,8 @@ app = FastAPI(
     title=settings.APP_NAME,
     description="Unified MSP platform: customers, billing (Xero), Microsoft 365 "
                  "license management, helpdesk with WhatsApp/Teams/Email ticket "
-                 "logging, endpoint monitoring, and recurring billing.",
+                 "logging, endpoint monitoring, and recurring billing with a "
+                 "general purchasing module and profitability reporting.",
     version="1.0.0",
 )
 
@@ -42,11 +46,12 @@ app.include_router(endpoints.router)
 app.include_router(admin_migrate.router)
 app.include_router(contacts_sync.router)
 
-# Amazon order import/assignment + helpdesk labour time entries (billing engine)
+# Amazon CSV import + general purchasing module + helpdesk labour time entries
 app.include_router(amazon.router)
+app.include_router(purchases.router)
 app.include_router(time_entries.router)
 
-# Per-customer billing configuration + license pricing
+# Per-customer billing configuration + license pricing + profitability reporting
 app.include_router(billing_config.router)
 
 # Email-to-ticket ingestion (helpdesk@letsma.co.uk)

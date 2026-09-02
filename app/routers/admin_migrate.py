@@ -48,7 +48,7 @@ def migrate_contacts_schema(db: Session = Depends(get_db), _=Depends(_check_admi
 
 @router.post("/migrate-billing-schema")
 def migrate_billing_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
-    """Adds the Amazon-order/time-entry/licence-pricing billing engine
+    """Adds the purchasing/time-entry/licence-pricing billing engine
     columns and tables (Customer billing config, Invoice billing-period
     columns, and the new TimeEntry / AmazonOrder / AmazonOrderLineItem /
     LicensePrice tables)."""
@@ -148,6 +148,32 @@ def migrate_email_ticket_schema(db: Session = Depends(get_db), _=Depends(_check_
             auto_reply_sent BOOLEAN DEFAULT FALSE,
             processed_at TIMESTAMP DEFAULT NOW()
         )""",
+    ]
+    applied = []
+    for stmt in statements:
+        db.execute(text(stmt))
+        applied.append(stmt)
+    db.commit()
+    return {"ok": True, "statements_applied": applied}
+
+
+@router.post("/migrate-purchasing-schema")
+def migrate_purchasing_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    """
+    Adds the general purchasing module + license profitability columns:
+      - amazon_orders.supplier: identifies which supplier an order is
+        from (Amazon, CDW, Ingram Micro, etc.), defaulting existing rows
+        to 'Amazon' so nothing about current Amazon CSV import behaviour
+        changes.
+      - license_prices.cost_price: what Letsma pays for a licence SKU
+        (e.g. CSP cost), separate from monthly_unit_price (what the
+        customer is charged) - used purely for profitability reporting,
+        never billed to customers.
+    """
+    statements = [
+        "ALTER TABLE amazon_orders ADD COLUMN IF NOT EXISTS supplier VARCHAR DEFAULT 'Amazon'",
+        "UPDATE amazon_orders SET supplier = 'Amazon' WHERE supplier IS NULL",
+        "ALTER TABLE license_prices ADD COLUMN IF NOT EXISTS cost_price FLOAT DEFAULT 0.0",
     ]
     applied = []
     for stmt in statements:

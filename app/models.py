@@ -5,11 +5,11 @@ Modules covered:
   - Customers & Contacts (incl. Microsoft 365 contact sync fields)
   - Helpdesk (Tickets, Comments, multi-channel Sources incl. WhatsApp/Teams/Portal/Email)
   - Billing (Invoices, Line items, Xero sync state, recurring-billing engine)
-  - Microsoft 365 License management
+  - Microsoft 365 License management (incl. sell price + cost price for profitability)
   - Endpoint monitoring (agents, heartbeats, alerts)
   - Staff/Technician users
   - Integration credential/token storage (OAuth tokens for Xero, Graph)
-  - Helpdesk labour time tracking + Amazon order billing + licence pricing
+  - Helpdesk labour time tracking + general purchasing (any supplier) + licence pricing
   - Email-to-ticket ingestion (excluded senders, auto-reply rules, processed emails)
 """
 import enum
@@ -93,7 +93,7 @@ class Customer(Base):
     billing_type = Column(String, default="payg")            # "payg" or "contract"
     monthly_support_fee = Column(Float, default=0.0)          # used when billing_type == "contract"
     payg_hourly_rate = Column(Float, default=0.0)             # used when billing_type == "payg"
-    amazon_markup_percent = Column(Float, default=0.0)        # e.g. 10.0 = +10% on top of Amazon cost price
+    amazon_markup_percent = Column(Float, default=0.0)        # markup %, applied to ALL purchases (any supplier), not just Amazon
     license_billing_mode = Column(String, default="none")     # "none" | "all" | "selected"
     licensed_skus_billed = Column(String, nullable=True)      # comma-separated sku_part_number list, only used when mode == "selected"
 
@@ -250,20 +250,34 @@ class TimeEntry(Base):
 
 
 class AmazonOrder(Base):
-    """An Amazon Business order, imported from a CSV export. Starts
-    unassigned; a technician assigns it to the customer it was purchased
-    for. Once included on a generated invoice, `invoiced` is set so it's
-    never billed twice."""
+    """
+    A purchase order from ANY supplier, tracked for customer billing.
+
+    Originally built for Amazon Business CSV imports (hence the class
+    name, kept as-is to avoid an invasive table rename), this now
+    doubles as a general PURCHASING module: orders can also be entered
+    manually for any supplier (CDW, Ingram Micro, a local shop, etc.) via
+    the /api/purchases/ endpoints. `supplier` distinguishes where an
+    order came from; `source` distinguishes HOW it was captured
+    ("csv_import" vs "manual").
+
+    Starts unassigned; a technician assigns it to the customer it was
+    purchased for. Once included on a generated invoice, `invoiced` is
+    set so it's never billed twice. The markup applied at billing time
+    comes from Customer.amazon_markup_percent, applied uniformly
+    regardless of supplier.
+    """
     __tablename__ = "amazon_orders"
 
     id = Column(String, primary_key=True, default=gen_id)
-    amazon_order_id = Column(String, nullable=False, unique=True)  # Amazon's own order number - prevents duplicate imports
+    amazon_order_id = Column(String, nullable=False, unique=True)  # the order's own reference number - prevents duplicate imports
     customer_id = Column(String, ForeignKey("customers.id"), nullable=True)  # null until assigned
+    supplier = Column(String, nullable=True, default="Amazon")  # e.g. "Amazon", "CDW", "Ingram Micro"
     order_date = Column(DateTime, nullable=True)
-    total = Column(Float, default=0.0)  # cost price, as paid to Amazon
+    total = Column(Float, default=0.0)  # cost price, as paid to the supplier
     currency = Column(String, default="GBP")
     description = Column(Text, nullable=True)
-    source = Column(String, default="csv_import")  # "csv_import" today; "api" reserved for future use
+    source = Column(String, default="csv_import")  # "csv_import" | "manual"
     invoiced = Column(Boolean, default=False)
     invoice_id = Column(String, ForeignKey("invoices.id"), nullable=True)
     imported_at = Column(DateTime, default=datetime.utcnow)
@@ -285,15 +299,22 @@ class AmazonOrderLineItem(Base):
 
 
 class LicensePrice(Base):
-    """Monthly price to charge customers for a given Microsoft 365 SKU.
+    """
+    Pricing for a given Microsoft 365 SKU:
+      - monthly_unit_price: what you CHARGE the customer, per seat/month.
+      - cost_price: what LETSMA PAYS (e.g. your CSP cost), per seat/month -
+        used purely for profitability reporting, never billed to customers.
+
     One global default row per SKU (customer_id = null) is used unless a
-    customer-specific override row exists for that same SKU."""
+    customer-specific override row exists for that same SKU.
+    """
     __tablename__ = "license_prices"
 
     id = Column(String, primary_key=True, default=gen_id)
     customer_id = Column(String, ForeignKey("customers.id"), nullable=True)  # null = global default price
     sku_part_number = Column(String, nullable=False)
-    monthly_unit_price = Column(Float, default=0.0)
+    monthly_unit_price = Column(Float, default=0.0)  # sell price to the customer
+    cost_price = Column(Float, nullable=True, default=0.0)  # Letsma's cost - for profitability reporting only
 
 
 # ---------------------------------------------------------------------------
