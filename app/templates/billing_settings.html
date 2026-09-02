@@ -2,7 +2,7 @@
 {% block title %}Billing Settings - Letsma MSP{% endblock %}
 {% block content %}
 <h2 class="page-title mb-1">Billing Settings</h2>
-<div class="text-muted mb-4">Configure how each customer is billed, and set monthly prices for Microsoft 365 licences.</div>
+<div class="text-muted mb-4">Configure how each customer is billed, set Microsoft 365 licence prices, and review profitability.</div>
 
 <div id="settingsAlert" class="mb-3"></div>
 
@@ -17,7 +17,7 @@
                         <th>Customer</th>
                         <th>Billing Type</th>
                         <th>Rate / Fee</th>
-                        <th>Amazon Markup %</th>
+                        <th>Purchase Markup %</th>
                         <th>Licence Billing</th>
                         <th></th>
                     </tr>
@@ -45,6 +45,7 @@
                                 <input type="number" step="0.1" class="form-control amazon-markup-input" value="{{ c.amazon_markup_percent or 0 }}">
                                 <span class="input-group-text">%</span>
                             </div>
+                            <div class="small text-muted mt-1">Applies to all purchases, any supplier</div>
                         </td>
                         <td>
                             <select class="form-select form-select-sm license-mode-select">
@@ -68,14 +69,46 @@
             </table>
             </div>
         </div>
+
+        <div class="card stat-card p-3 mb-4">
+            <h5 class="page-title">Purchasing</h5>
+            <p class="small text-muted">Log an order from any supplier (Amazon, CDW, Ingram Micro, a local shop, etc.). It will be billed with the customer's purchase markup on their next monthly invoice.</p>
+            <form class="row g-2" onsubmit="return createPurchase(event)">
+                <div class="col-md-3">
+                    <label class="form-label small">Supplier</label>
+                    <input type="text" class="form-control form-control-sm" id="purchaseSupplier" placeholder="e.g. CDW" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small">Description</label>
+                    <input type="text" class="form-control form-control-sm" id="purchaseDescription" placeholder="e.g. 3x wireless keyboards" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small">Cost (£)</label>
+                    <input type="number" step="0.01" class="form-control form-control-sm" id="purchaseTotal" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">Customer</label>
+                    <select class="form-select form-select-sm" id="purchaseCustomer">
+                        <option value="">-- Assign later --</option>
+                        {% for c in customers %}
+                            <option value="{{ c.id }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-sm text-white" style="background-color:#0b2545">Log Purchase</button>
+                </div>
+            </form>
+            <div id="purchaseResult" class="mt-2 small"></div>
+        </div>
     </div>
 
     <div class="col-lg-5">
         <div class="card stat-card p-3 mb-4">
             <h5 class="page-title">Microsoft 365 Licence Prices</h5>
-            <p class="small text-muted">Global default price per seat, per month. Add a customer-specific override further down if one customer negotiated a different rate.</p>
+            <p class="small text-muted">Sell price is what you charge the customer per seat/month. Cost price is what Letsma pays (e.g. your CSP cost) - used only for profitability reporting, never billed.</p>
             <table class="table table-sm align-middle" id="licensePricesTable">
-                <thead><tr><th>SKU</th><th>Scope</th><th>Monthly Price</th><th></th></tr></thead>
+                <thead><tr><th>SKU</th><th>Scope</th><th>Sell</th><th>Cost</th><th>Margin</th></tr></thead>
                 <tbody>
                 {% for p in license_prices %}
                     <tr>
@@ -90,10 +123,11 @@
                             {% endif %}
                         </td>
                         <td>£{{ '%.2f'|format(p.monthly_unit_price) }}</td>
-                        <td></td>
+                        <td>£{{ '%.2f'|format(p.cost_price or 0) }}</td>
+                        <td>£{{ '%.2f'|format(p.monthly_unit_price - (p.cost_price or 0)) }}</td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="4" class="text-muted">No prices set yet.</td></tr>
+                    <tr><td colspan="5" class="text-muted">No prices set yet.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -108,11 +142,17 @@
                         {% for sku in known_skus %}<option value="{{ sku }}">{% endfor %}
                     </datalist>
                 </div>
-                <div class="mb-2">
-                    <label class="form-label small">Monthly price (£)</label>
-                    <input type="number" step="0.01" class="form-control form-control-sm" id="newPriceValue" required>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label small">Sell price (£/mo)</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm" id="newPriceValue" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Cost price (£/mo)</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm" id="newCostValue" placeholder="0.00">
+                    </div>
                 </div>
-                <div class="mb-2">
+                <div class="mb-2 mt-2">
                     <label class="form-label small">Customer (leave blank for global default)</label>
                     <select class="form-select form-select-sm" id="newPriceCustomer">
                         <option value="">-- Global default --</option>
@@ -123,6 +163,19 @@
                 </div>
                 <button type="submit" class="btn btn-sm text-white" style="background-color:#0b2545">Save Price</button>
             </form>
+        </div>
+
+        <div class="card stat-card p-3 mb-4">
+            <h5 class="page-title">Licence Profitability</h5>
+            <p class="small text-muted">Based on currently assigned seats and configured prices.</p>
+            <div id="profitabilitySummary" class="mb-2"></div>
+            <button class="btn btn-sm btn-outline-primary w-100" onclick="loadProfitability()">Refresh Report</button>
+            <div class="table-responsive mt-2">
+                <table class="table table-sm" id="profitabilityTable" style="display:none;">
+                    <thead><tr><th>Customer</th><th>SKU</th><th>Seats</th><th>Margin</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
 
         <div class="card stat-card p-3">
@@ -209,13 +262,45 @@ document.querySelectorAll('.save-customer-btn').forEach(btn => {
     });
 });
 
+async function createPurchase(e) {
+    e.preventDefault();
+    const supplier = document.getElementById('purchaseSupplier').value.trim();
+    const description = document.getElementById('purchaseDescription').value.trim();
+    const total = parseFloat(document.getElementById('purchaseTotal').value);
+    const customerId = document.getElementById('purchaseCustomer').value || null;
+    const resultDiv = document.getElementById('purchaseResult');
+
+    const payload = {supplier, description, total};
+    if (customerId) payload.customer_id = customerId;
+
+    try {
+        const resp = await fetch('/api/purchases/', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            const assignedMsg = data.assigned ? 'and assigned to the selected customer' : '- remember to assign it to a customer before the next billing run';
+            resultDiv.innerHTML = `<div class="alert alert-success py-2 mb-0">Logged purchase from <strong>${data.supplier}</strong> ${assignedMsg}.</div>`;
+            document.getElementById('purchaseSupplier').value = '';
+            document.getElementById('purchaseDescription').value = '';
+            document.getElementById('purchaseTotal').value = '';
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">Failed: ${data.detail || JSON.stringify(data)}</div>`;
+        }
+    } catch (err) {
+        resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">Failed: ${err}</div>`;
+    }
+    return false;
+}
+
 async function saveLicensePrice(e) {
     e.preventDefault();
     const sku = document.getElementById('newPriceSku').value.trim();
     const price = parseFloat(document.getElementById('newPriceValue').value);
+    const costPrice = parseFloat(document.getElementById('newCostValue').value) || 0;
     const customerId = document.getElementById('newPriceCustomer').value || null;
 
-    const payload = {sku_part_number: sku, monthly_unit_price: price};
+    const payload = {sku_part_number: sku, monthly_unit_price: price, cost_price: costPrice};
     if (customerId) payload.customer_id = customerId;
 
     try {
@@ -224,7 +309,7 @@ async function saveLicensePrice(e) {
         });
         const data = await resp.json();
         if (resp.ok) {
-            showAlert(`Saved price for <strong>${data.sku_part_number}</strong> (${data.scope}): £${data.monthly_unit_price.toFixed(2)}/mo`, 'success');
+            showAlert(`Saved price for <strong>${data.sku_part_number}</strong> (${data.scope}): sell £${data.monthly_unit_price.toFixed(2)}/mo, cost £${data.cost_price.toFixed(2)}/mo`, 'success');
             setTimeout(() => window.location.reload(), 1200);
         } else {
             showAlert(`Failed to save price: ${data.detail || JSON.stringify(data)}`, 'danger');
@@ -233,6 +318,36 @@ async function saveLicensePrice(e) {
         showAlert(`Failed to save price: ${err}`, 'danger');
     }
     return false;
+}
+
+async function loadProfitability() {
+    const summaryDiv = document.getElementById('profitabilitySummary');
+    const table = document.getElementById('profitabilityTable');
+    const tbody = table.querySelector('tbody');
+    summaryDiv.innerHTML = 'Loading...';
+
+    try {
+        const resp = await fetch('/api/billing-config/license-profitability');
+        const data = await resp.json();
+        if (!resp.ok) {
+            summaryDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">${data.detail || JSON.stringify(data)}</div>`;
+            return;
+        }
+        summaryDiv.innerHTML = `<strong>Total estimated monthly margin: £${data.totals.margin.toFixed(2)}</strong> (revenue £${data.totals.revenue.toFixed(2)}, cost £${data.totals.cost.toFixed(2)})` +
+            (data.skus_missing_price_configuration.length ? `<br><span class="text-warning small">No price set for: ${data.skus_missing_price_configuration.join(', ')}</span>` : '');
+
+        tbody.innerHTML = data.rows.map(r => `
+            <tr>
+                <td>${r.customer}</td>
+                <td>${r.friendly_name}</td>
+                <td>${r.seats}</td>
+                <td>${r.margin !== null ? '£' + r.margin.toFixed(2) : '<span class="text-muted">no price set</span>'}</td>
+            </tr>
+        `).join('');
+        table.style.display = '';
+    } catch (err) {
+        summaryDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">${err}</div>`;
+    }
 }
 
 async function generateInvoices(e) {
