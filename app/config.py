@@ -84,5 +84,10 @@ class Settings:
     HELPDESK_GRAPH_CLIENT_SECRET: str = os.getenv("HELPDESK_GRAPH_CLIENT_SECRET", "")
     HELPDESK_MAILBOX_ADDRESS: str = os.getenv("HELPDESK_MAILBOX_ADDRESS", "helpdesk@letsma.co.uk")
 
+    # AI-drafted ticket replies (Azure OpenAI)
+    AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY", "")
+    AZURE_OPENAI_DEPLOYMENT_NAME: str = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "")
+
 
 settings = Settings()
