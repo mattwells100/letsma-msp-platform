@@ -129,6 +129,25 @@ def list_license_prices(db: Session = Depends(get_db)):
     ]
 
 
+@router.delete("/license-prices/{price_id}")
+def delete_license_price(price_id: str, db: Session = Depends(get_db)):
+    """
+    Removes a license price row entirely - most commonly used to delete a
+    customer-specific override so that customer falls back to the global
+    default price for that SKU again. Deleting the global default row
+    itself is also allowed (e.g. if a SKU should no longer be priced at
+    all), though note this will cause that SKU to show as "no price
+    configured" on invoices/profitability reports for anyone not covered
+    by their own override.
+    """
+    price = db.query(models.LicensePrice).get(price_id)
+    if not price:
+        raise HTTPException(404, "Price not found")
+    db.delete(price)
+    db.commit()
+    return {"ok": True, "deleted_id": price_id}
+
+
 def _round2(value: float) -> float:
     return round(value + 1e-9, 2)
 
