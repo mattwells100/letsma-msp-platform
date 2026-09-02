@@ -12,10 +12,11 @@ Generates one consolidated monthly Invoice per customer, combining:
     applied on top of the cost price.
   - Both billing types: a license line, if license_billing_mode is not
     "none" - either all currently-assigned licenses, or only the SKUs
-    listed in licensed_skus_billed, priced via LicensePrice (customer-
-    specific override if one exists, else the global default row for
-    that SKU; SKUs with no price configured anywhere are skipped with a
-    warning rather than silently billed as zero).
+    listed in licensed_skus_billed, priced via LicensePrice - preferring
+    a price matching the customer's own license_term_commitment
+    (monthly/annual), falling back to whichever term IS configured if
+    only one exists. SKUs with no price configured anywhere are skipped
+    with a warning rather than silently billed as zero.
 
 All money values are rounded to 2 decimal places at the point each line
 item is created, and the invoice's subtotal/tax/total are computed by
@@ -35,16 +36,46 @@ def _round2(value: float) -> float:
     return round(value + 1e-9, 2)  # tiny epsilon guards against classic float repr issues, e.g. round(2.675, 2)
 
 
-def _get_license_price(db, customer_id: str, sku_part_number: str):
-    """Customer-specific override takes priority over the global default row.
-    Returns the SELL price (monthly_unit_price) - cost_price is never billed
-    to customers, it's for internal profitability reporting only."""
-    override = db.query(LicensePrice).filter_by(customer_id=customer_id, sku_part_number=sku_part_number).first()
-    if override:
-        return override.monthly_unit_price
-    default = db.query(LicensePrice).filter_by(customer_id=None, sku_part_number=sku_part_number).first()
-    if default:
-        return default.monthly_unit_price
+def _get_license_price(db, customer: Customer, sku_part_number: str):
+    """
+    Finds the best-matching monthly-equivalent sell price for a customer
+    + SKU, preferring a price entered in the SAME commitment term as the
+    customer's own license_term_commitment (annual-commitment pricing is
+    typically discounted vs monthly, so these are genuinely different
+    amounts) - customer-specific override (matching term) > customer
+    override (other term) > global default (matching term) > global
+    default (other term) > None if nothing is configured at all.
+
+    This fallback chain means a SKU with only ONE price configured (the
+    common case, and all data predating the monthly/annual term feature)
+    continues to work exactly as before, regardless of what term any
+    given customer is on.
+    """
+    customer_id = customer.id
+    term = (customer.license_term_commitment or "monthly")
+    other_term = "annual" if term == "monthly" else "monthly"
+
+    row = db.query(LicensePrice).filter_by(
+        customer_id=customer_id, sku_part_number=sku_part_number, price_term=term
+    ).first()
+    if row:
+        return row.monthly_unit_price
+    row = db.query(LicensePrice).filter_by(
+        customer_id=customer_id, sku_part_number=sku_part_number, price_term=other_term
+    ).first()
+    if row:
+        return row.monthly_unit_price
+
+    row = db.query(LicensePrice).filter_by(
+        customer_id=None, sku_part_number=sku_part_number, price_term=term
+    ).first()
+    if row:
+        return row.monthly_unit_price
+    row = db.query(LicensePrice).filter_by(
+        customer_id=None, sku_part_number=sku_part_number, price_term=other_term
+    ).first()
+    if row:
+        return row.monthly_unit_price
     return None  # no price configured anywhere - caller must handle (skip + warn)
 
 
@@ -136,7 +167,7 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
             friendly_names[a.sku_part_number] = a.friendly_name or a.sku_part_number
 
         for sku, count in counts_by_sku.items():
-            price = _get_license_price(db, customer.id, sku)
+            price = _get_license_price(db, customer, sku)
             if price is None:
                 warnings.append(f"No price configured for licence SKU '{sku}' - skipped, not billed.")
                 continue

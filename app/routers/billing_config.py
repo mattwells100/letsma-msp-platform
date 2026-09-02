@@ -8,14 +8,23 @@ for each Microsoft 365 licence SKU - as either a MONTHLY or ANNUAL
 commitment price (NCE lets you buy a SKU on either term, and annual
 commitment usually comes at a discount).
 
+IMPORTANT: monthly and annual prices for the SAME SKU (and same
+customer_id scope) are stored as SEPARATE rows, keyed on
+(customer_id, sku_part_number, price_term). This means you can
+configure both a monthly-commitment price AND a (usually cheaper)
+annual-commitment price for the same SKU, and the billing engine will
+automatically pick whichever one matches each customer's own
+license_term_commitment - falling back to whichever term IS configured
+if only one exists, so existing single-price SKUs keep working exactly
+as before.
+
 Prices are always stored normalized to a monthly-equivalent
 (monthly_unit_price / cost_price) so the billing engine
 (billing_service.py) never needs to know or care which term a price was
 originally entered as - it always just does seats x monthly_unit_price.
 The raw entered figures and their term are kept separately
 (entered_sell_price / entered_cost_price / price_term) purely for
-display, so you can see "£120.00/year (= £10.00/mo)" rather than only
-ever seeing the normalized monthly figure.
+display.
 """
 from typing import Optional
 from collections import defaultdict
@@ -126,15 +135,16 @@ def set_license_price(payload: LicensePriceSet, db: Session = Depends(get_db)):
     global default (omit customer_id) used for every customer unless
     overridden, or a customer-specific override price.
 
+    Monthly and annual prices for the SAME SKU/customer_id scope are
+    stored as SEPARATE rows (upsert is keyed on
+    customer_id + sku_part_number + price_term) - this means adding an
+    annual price after a monthly price CREATES A SECOND ROW rather than
+    overwriting the first, letting you configure both a monthly-term and
+    a (usually cheaper) annual-term price for the same SKU.
+
     The entered figure is normalized to a monthly-equivalent
     (annual / 12) and stored in monthly_unit_price/cost_price, which is
-    what the billing engine actually uses - this means NCE annual
-    commitment pricing (which usually comes at a discount vs monthly)
-    can be entered exactly as quoted by your distributor, without
-    needing to manually divide by 12 yourself.
-
-    Upserts: calling this again for the same (customer_id, sku_part_number)
-    pair updates the existing price rather than creating a duplicate row.
+    what the billing engine actually uses.
     """
     if payload.price_term not in ("monthly", "annual"):
         raise HTTPException(400, "price_term must be 'monthly' or 'annual'")
@@ -149,13 +159,14 @@ def set_license_price(payload: LicensePriceSet, db: Session = Depends(get_db)):
     normalized_cost = _round2((payload.cost_price or 0.0) / divisor)
 
     existing = db.query(models.LicensePrice).filter_by(
-        customer_id=payload.customer_id, sku_part_number=payload.sku_part_number
+        customer_id=payload.customer_id,
+        sku_part_number=payload.sku_part_number,
+        price_term=payload.price_term,
     ).first()
 
     if existing:
         existing.monthly_unit_price = normalized_sell
         existing.cost_price = normalized_cost
-        existing.price_term = payload.price_term
         existing.entered_sell_price = payload.price
         existing.entered_cost_price = payload.cost_price or 0.0
     else:
@@ -190,7 +201,7 @@ def list_license_prices(db: Session = Depends(get_db)):
             "entered_cost_price": p.entered_cost_price if p.entered_cost_price is not None else (p.cost_price or 0.0),
             "monthly_unit_price": p.monthly_unit_price,
             "cost_price": p.cost_price or 0.0,
-            "margin": _round2(p.monthly_unit_price - (p.cost_price or 0.0)),
+            "margin": _round2((p.monthly_unit_price or 0) - (p.cost_price or 0.0)),
             "customer_id": p.customer_id, "scope": "customer-specific" if p.customer_id else "global default",
         }
         for p in prices
@@ -200,9 +211,9 @@ def list_license_prices(db: Session = Depends(get_db)):
 @router.delete("/license-prices/{price_id}")
 def delete_license_price(price_id: str, db: Session = Depends(get_db)):
     """
-    Removes a license price row entirely - most commonly used to delete a
-    customer-specific override so that customer falls back to the global
-    default price for that SKU again.
+    Removes a license price row entirely. Since monthly and annual prices
+    for the same SKU are now separate rows, deleting one term's price
+    leaves the other term's price (if configured) untouched.
     """
     price = db.query(models.LicensePrice).get(price_id)
     if not price:
@@ -212,13 +223,49 @@ def delete_license_price(price_id: str, db: Session = Depends(get_db)):
     return {"ok": True, "deleted_id": price_id}
 
 
-def _get_effective_price_row(db: Session, customer_id: str, sku_part_number: str):
-    """Same override logic as billing_service.py: customer-specific row
-    wins over the global default row for the same SKU."""
-    override = db.query(models.LicensePrice).filter_by(customer_id=customer_id, sku_part_number=sku_part_number).first()
-    if override:
-        return override
-    return db.query(models.LicensePrice).filter_by(customer_id=None, sku_part_number=sku_part_number).first()
+def _get_effective_price_row(db: Session, customer, sku_part_number: str):
+    """
+    Finds the best-matching LicensePrice row for a customer + SKU,
+    preferring a price entered in the SAME commitment term as the
+    customer's own license_term_commitment - since annual-commitment
+    pricing is typically discounted vs monthly, these are genuinely
+    different amounts, not just different display formats of the same
+    price. Priority order:
+      1. Customer-specific override, matching the customer's term
+      2. Customer-specific override, the OTHER term (better than nothing)
+      3. Global default, matching the customer's term
+      4. Global default, the OTHER term
+      5. None (no price configured at all for this SKU)
+
+    This fallback chain means a SKU with only ONE price configured
+    (the common case, and all pre-existing data before this feature)
+    continues to work exactly as before, regardless of what term any
+    given customer is on.
+    """
+    customer_id = customer.id if customer else None
+    term = (getattr(customer, "license_term_commitment", None) if customer else None) or "monthly"
+    other_term = "annual" if term == "monthly" else "monthly"
+
+    if customer_id:
+        row = db.query(models.LicensePrice).filter_by(
+            customer_id=customer_id, sku_part_number=sku_part_number, price_term=term
+        ).first()
+        if row:
+            return row
+        row = db.query(models.LicensePrice).filter_by(
+            customer_id=customer_id, sku_part_number=sku_part_number, price_term=other_term
+        ).first()
+        if row:
+            return row
+
+    row = db.query(models.LicensePrice).filter_by(
+        customer_id=None, sku_part_number=sku_part_number, price_term=term
+    ).first()
+    if row:
+        return row
+    return db.query(models.LicensePrice).filter_by(
+        customer_id=None, sku_part_number=sku_part_number, price_term=other_term
+    ).first()
 
 
 @router.get("/license-profitability")
@@ -226,12 +273,13 @@ def license_profitability(db: Session = Depends(get_db)):
     """
     Reports estimated Microsoft 365 licensing profit: for every currently
     assigned licence seat across all customers, looks up the effective
-    sell price and cost price (customer-specific override if set,
-    otherwise the global default - always using the normalized MONTHLY
-    figure regardless of what term it was originally entered as), and
-    returns per-customer, per-SKU seat counts, revenue, cost, and margin.
-    Also includes each customer's license_term_commitment (monthly/annual)
-    so you can see profitability alongside contractual commitment.
+    sell price and cost price - preferring a price matching that
+    customer's own license_term_commitment (monthly/annual), falling
+    back to whichever term IS configured if only one exists - and
+    returns per-customer, per-SKU seat counts, revenue, cost, and
+    margin. SKUs with no price configured at all are reported with a
+    null price/margin rather than silently assuming zero cost or zero
+    revenue.
     """
     assignments = db.query(models.LicenseAssignment).all()
     customers_map = {c.id: c for c in db.query(models.Customer).all()}
@@ -253,7 +301,7 @@ def license_profitability(db: Session = Depends(get_db)):
         customer_name = customer_obj.name if customer_obj else "Unknown"
         term_commitment = (customer_obj.license_term_commitment or "monthly") if customer_obj else "monthly"
 
-        price_row = _get_effective_price_row(db, customer_id, sku)
+        price_row = _get_effective_price_row(db, customer_obj, sku)
         if price_row is None:
             skus_missing_price.add(sku)
             rows.append({
