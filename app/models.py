@@ -491,3 +491,7 @@ class OAuthToken(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 license_term_commitment = Column(String, default="monthly")
+price_term = Column(String, default="monthly")
+entered_sell_price = Column(Float, nullable=True)
+entered_cost_price = Column(Float, nullable=True)
+
