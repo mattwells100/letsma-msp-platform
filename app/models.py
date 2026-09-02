@@ -315,7 +315,9 @@ class LicensePrice(Base):
     sku_part_number = Column(String, nullable=False)
     monthly_unit_price = Column(Float, default=0.0)  # sell price to the customer
     cost_price = Column(Float, nullable=True, default=0.0)  # Letsma's cost - for profitability reporting only
-
+    price_term = Column(String, default="monthly") # <-- ADD THIS
+    entered_sell_price = Column(Float, nullable=True) # <-- ADD THIS
+    entered_cost_price = Column(Float, nullable=True)
 
 # ---------------------------------------------------------------------------
 # Microsoft 365 Licensing
