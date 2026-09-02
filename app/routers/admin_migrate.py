@@ -45,6 +45,25 @@ def migrate_contacts_schema(db: Session = Depends(get_db), _=Depends(_check_admi
     db.commit()
     return {"ok": True, "statements_applied": applied}
 
+@router.post("/migrate-license-term-schema")
+def migrate_license_term_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    """
+    Adds Customer.license_term_commitment - manually tracks whether a
+    customer's Microsoft 365 licensing is on a monthly or annual CSP
+    term commitment. This is NOT synced from Microsoft Graph (Graph has
+    no concept of CSP/NCE term commitment - that lives in your
+    distributor's Partner Center, e.g. Pax8/Sherweb) - you set this
+    manually based on what you see in your distributor's portal.
+    """
+    statements = [
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS license_term_commitment VARCHAR DEFAULT 'monthly'",
+    ]
+    applied = []
+    for stmt in statements:
+        db.execute(text(stmt))
+        applied.append(stmt)
+    db.commit()
+    return {"ok": True, "statements_applied": applied}
 
 @router.post("/migrate-billing-schema")
 def migrate_billing_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):

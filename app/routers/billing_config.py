@@ -2,9 +2,9 @@
 app/routers/billing_config.py
 
 Lets you configure how each customer is billed (PAYG vs contract, rates,
-purchase markup, licence billing mode) and set the monthly SELL price
-(and optional cost price, for profitability reporting) for each
-Microsoft 365 licence SKU.
+purchase markup, licence billing mode, licence term commitment) and set
+the monthly SELL price (and optional cost price, for profitability
+reporting) for each Microsoft 365 licence SKU.
 """
 from typing import Optional
 from collections import defaultdict
@@ -25,6 +25,7 @@ class CustomerBillingConfig(BaseModel):
     amazon_markup_percent: Optional[float] = 0.0  # applied to ALL purchases, any supplier
     license_billing_mode: str = "none"  # "none" | "all" | "selected"
     licensed_skus_billed: Optional[str] = None  # comma-separated SKU list, only used when mode == "selected"
+    license_term_commitment: Optional[str] = "monthly"  # "monthly" | "annual" - manually tracked, NOT synced from Graph (Microsoft doesn't expose CSP term commitment via Graph)
 
 
 @router.put("/customers/{customer_id}")
@@ -37,6 +38,8 @@ def set_customer_billing_config(customer_id: str, payload: CustomerBillingConfig
         raise HTTPException(400, "billing_type must be 'payg' or 'contract'")
     if payload.license_billing_mode not in ("none", "all", "selected"):
         raise HTTPException(400, "license_billing_mode must be 'none', 'all', or 'selected'")
+    if payload.license_term_commitment not in ("monthly", "annual"):
+        raise HTTPException(400, "license_term_commitment must be 'monthly' or 'annual'")
 
     customer.billing_type = payload.billing_type
     customer.monthly_support_fee = payload.monthly_support_fee or 0.0
@@ -44,6 +47,7 @@ def set_customer_billing_config(customer_id: str, payload: CustomerBillingConfig
     customer.amazon_markup_percent = payload.amazon_markup_percent or 0.0
     customer.license_billing_mode = payload.license_billing_mode
     customer.licensed_skus_billed = payload.licensed_skus_billed
+    customer.license_term_commitment = payload.license_term_commitment
     db.commit()
     db.refresh(customer)
 
@@ -55,6 +59,7 @@ def set_customer_billing_config(customer_id: str, payload: CustomerBillingConfig
         "amazon_markup_percent": customer.amazon_markup_percent,
         "license_billing_mode": customer.license_billing_mode,
         "licensed_skus_billed": customer.licensed_skus_billed,
+        "license_term_commitment": customer.license_term_commitment,
     }
 
 
@@ -71,7 +76,23 @@ def get_customer_billing_config(customer_id: str, db: Session = Depends(get_db))
         "amazon_markup_percent": customer.amazon_markup_percent,
         "license_billing_mode": customer.license_billing_mode,
         "licensed_skus_billed": customer.licensed_skus_billed,
+        "license_term_commitment": customer.license_term_commitment,
     }
+
+
+@router.get("/customers")
+def list_customers_billing_config(db: Session = Depends(get_db)):
+    """Quick overview of every customer's billing type + license term
+    commitment - useful for answering 'which of my customers are locked
+    into annual vs monthly licensing?' at a glance."""
+    customers = db.query(models.Customer).order_by(models.Customer.name).all()
+    return [
+        {
+            "id": c.id, "name": c.name, "billing_type": c.billing_type,
+            "license_term_commitment": c.license_term_commitment or "monthly",
+        }
+        for c in customers
+    ]
 
 
 class LicensePriceSet(BaseModel):
@@ -134,11 +155,7 @@ def delete_license_price(price_id: str, db: Session = Depends(get_db)):
     """
     Removes a license price row entirely - most commonly used to delete a
     customer-specific override so that customer falls back to the global
-    default price for that SKU again. Deleting the global default row
-    itself is also allowed (e.g. if a SKU should no longer be priced at
-    all), though note this will cause that SKU to show as "no price
-    configured" on invoices/profitability reports for anyone not covered
-    by their own override.
+    default price for that SKU again.
     """
     price = db.query(models.LicensePrice).get(price_id)
     if not price:
@@ -168,15 +185,15 @@ def license_profitability(db: Session = Depends(get_db)):
     assigned licence seat across all customers, looks up the effective
     sell price and cost price (customer-specific override if set,
     otherwise the global default), and returns per-customer, per-SKU
-    seat counts, revenue, cost, and margin. SKUs with no price configured
-    are reported with a null price/margin rather than silently assuming
-    zero cost or zero revenue, so gaps in your pricing setup are visible
-    rather than hidden.
+    seat counts, revenue, cost, and margin. Also includes each customer's
+    license_term_commitment (monthly/annual) so you can see profitability
+    alongside contractual commitment at a glance. SKUs with no price
+    configured are reported with a null price/margin rather than
+    silently assuming zero cost or zero revenue.
     """
     assignments = db.query(models.LicenseAssignment).all()
-    customers = {c.id: c.name for c in db.query(models.Customer).all()}
+    customers_map = {c.id: c for c in db.query(models.Customer).all()}
 
-    # Group seat counts by (customer_id, sku_part_number)
     seat_counts = defaultdict(int)
     friendly_names = {}
     for a in assignments:
@@ -190,12 +207,17 @@ def license_profitability(db: Session = Depends(get_db)):
     skus_missing_price = set()
 
     for (customer_id, sku), seats in seat_counts.items():
+        customer_obj = customers_map.get(customer_id)
+        customer_name = customer_obj.name if customer_obj else "Unknown"
+        term_commitment = (customer_obj.license_term_commitment or "monthly") if customer_obj else "monthly"
+
         price_row = _get_effective_price_row(db, customer_id, sku)
         if price_row is None:
             skus_missing_price.add(sku)
             rows.append({
-                "customer": customers.get(customer_id, "Unknown"), "sku_part_number": sku,
+                "customer": customer_name, "sku_part_number": sku,
                 "friendly_name": friendly_names.get(sku, sku), "seats": seats,
+                "license_term_commitment": term_commitment,
                 "sell_price": None, "cost_price": None, "revenue": None, "cost": None, "margin": None,
             })
             continue
@@ -211,8 +233,9 @@ def license_profitability(db: Session = Depends(get_db)):
         total_margin += margin
 
         rows.append({
-            "customer": customers.get(customer_id, "Unknown"), "sku_part_number": sku,
+            "customer": customer_name, "sku_part_number": sku,
             "friendly_name": friendly_names.get(sku, sku), "seats": seats,
+            "license_term_commitment": term_commitment,
             "sell_price": sell, "cost_price": cost, "revenue": revenue, "cost": cost_total, "margin": margin,
         })
 

@@ -19,6 +19,7 @@
                         <th>Rate / Fee</th>
                         <th>Purchase Markup %</th>
                         <th>Licence Billing</th>
+                        <th>Licence Term</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -59,11 +60,18 @@
                                    style="{% if c.license_billing_mode != 'selected' %}display:none;{% endif %}">
                         </td>
                         <td>
+                            <select class="form-select form-select-sm license-term-select">
+                                <option value="monthly" {% if (c.license_term_commitment or 'monthly') == 'monthly' %}selected{% endif %}>Monthly</option>
+                                <option value="annual" {% if c.license_term_commitment == 'annual' %}selected{% endif %}>Annual</option>
+                            </select>
+                            <div class="small text-muted mt-1">Set manually - not synced from Microsoft</div>
+                        </td>
+                        <td>
                             <button class="btn btn-sm btn-outline-primary save-customer-btn">Save</button>
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="6" class="text-muted">No customers yet.</td></tr>
+                    <tr><td colspan="7" class="text-muted">No customers yet.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -172,12 +180,12 @@
 
         <div class="card stat-card p-3 mb-4">
             <h5 class="page-title">Licence Profitability</h5>
-            <p class="small text-muted">Based on currently assigned seats and configured prices.</p>
+            <p class="small text-muted">Based on currently assigned seats and configured prices. Term column shows each customer's manually-set commitment (Microsoft doesn't expose this via API).</p>
             <div id="profitabilitySummary" class="mb-2"></div>
             <button class="btn btn-sm btn-outline-primary w-100" onclick="loadProfitability()">Refresh Report</button>
             <div class="table-responsive mt-2">
                 <table class="table table-sm" id="profitabilityTable" style="display:none;">
-                    <thead><tr><th>Customer</th><th>SKU</th><th>Seats</th><th>Margin</th></tr></thead>
+                    <thead><tr><th>Customer</th><th>SKU</th><th>Term</th><th>Seats</th><th>Margin</th></tr></thead>
                     <tbody></tbody>
                 </table>
             </div>
@@ -236,12 +244,14 @@ document.querySelectorAll('.save-customer-btn').forEach(btn => {
         const amazonMarkup = parseFloat(row.querySelector('.amazon-markup-input').value) || 0;
         const licenseMode = row.querySelector('.license-mode-select').value;
         const selectedSkus = row.querySelector('.selected-skus-input').value.trim();
+        const licenseTerm = row.querySelector('.license-term-select').value;
 
         const payload = {
             billing_type: billingType,
             amazon_markup_percent: amazonMarkup,
             license_billing_mode: licenseMode,
             licensed_skus_billed: selectedSkus || null,
+            license_term_commitment: licenseTerm,
         };
         if (billingType === 'contract') {
             payload.monthly_support_fee = rateFee;
@@ -257,7 +267,7 @@ document.querySelectorAll('.save-customer-btn').forEach(btn => {
             });
             const data = await resp.json();
             if (resp.ok) {
-                showAlert(`Saved billing configuration for <strong>${data.customer}</strong>.`, 'success');
+                showAlert(`Saved billing configuration for <strong>${data.customer}</strong> (${data.license_term_commitment} licence term).`, 'success');
             } else {
                 showAlert(`Failed to save: ${data.detail || JSON.stringify(data)}`, 'danger');
             }
@@ -373,6 +383,7 @@ async function loadProfitability() {
             <tr>
                 <td>${r.customer}</td>
                 <td>${r.friendly_name}</td>
+                <td><span class="badge ${r.license_term_commitment === 'annual' ? 'bg-primary' : 'bg-secondary'}">${r.license_term_commitment}</span></td>
                 <td>${r.seats}</td>
                 <td>${r.margin !== null ? '£' + r.margin.toFixed(2) : '<span class="text-muted">no price set</span>'}</td>
             </tr>
