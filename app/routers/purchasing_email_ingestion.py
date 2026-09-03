@@ -5,10 +5,17 @@ Endpoints to manually trigger a purchasing-mailbox poll (orders@letsma.co.uk)
 and to confirm a needs_review purchase draft into the normal billable
 Unbilled Purchases pipeline. Mirrors app/routers/email_ingestion.py.
 
+An order can have multiple line items (e.g. a laptop + a delivery charge,
+or several different products in one supplier email) - GET /api/purchases/
+{id} (defined in purchases.py) returns every line for review, and this
+router's /confirm endpoint can replace the FULL set in one action via the
+shared app/services/purchase_line_items.py helper, not just edit a single
+"primary" line.
+
 VAT convention: identical to app/routers/purchases.py - every price field
 here (total, unit_price) is ALWAYS excluding VAT.
 """
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -17,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
 from app.services import purchase_email_ingestion_service
+from app.services.purchase_line_items import replace_line_items
 
 router = APIRouter(prefix="/api/purchasing/email-ingestion", tags=["Purchasing-Email-Ingest"])
 
@@ -35,7 +43,11 @@ async def poll_orders_inbox(db: Session = Depends(get_db)):
 
 @router.get("/needs-review")
 def list_needs_review(db: Session = Depends(get_db)):
-    """Lists all email-ingested orders awaiting human confirmation, oldest first."""
+    """Lists all email-ingested orders awaiting human confirmation, oldest
+    first. Line item detail is intentionally NOT included here (only a
+    count) - the GUI fetches the full line-item breakdown via
+    GET /api/purchases/{id} only when a technician opens the Review modal,
+    keeping this summary list lightweight."""
     rows = (
         db.query(models.AmazonOrder)
         .filter(models.AmazonOrder.source == "email_auto")
@@ -43,77 +55,68 @@ def list_needs_review(db: Session = Depends(get_db)):
         .order_by(models.AmazonOrder.ingested_at.asc())
         .all()
     )
-    result = []
-    for r in rows:
-        primary = r.line_items[0] if r.line_items else None
-        result.append({
+    return [
+        {
             "id": r.id,
             "supplier": r.supplier,
             "order_reference": r.amazon_order_id,
             "customer_id": r.customer_id,
             "end_user_hint": r.end_user_hint,
             "description": r.description,
-            "quantity": primary.quantity if primary else 1.0,
-            "unit_price": primary.unit_price if primary else r.total,  # excluding VAT
-            "other_line_items_count": max(len(r.line_items) - 1, 0),
+            "line_item_count": len(r.line_items),
             "total": r.total,  # excluding VAT
             "currency": r.currency,
             "extraction_status": r.extraction_status,
             "ingested_at": r.ingested_at.isoformat() if r.ingested_at else None,
-        })
-    return result
+        }
+        for r in rows
+    ]
+
+
+class PurchaseLineItemInput(BaseModel):
+    description: str
+    quantity: float = 1.0
+    unit_price: float  # cost price PER UNIT, EXCLUDING VAT
 
 
 class ConfirmOrderRequest(BaseModel):
     customer_id: Optional[str] = None
+    supplier: Optional[str] = None
     description: Optional[str] = None
-    quantity: Optional[float] = None
-    unit_price: Optional[float] = None  # cost price PER UNIT, EXCLUDING VAT
-    total_override: Optional[float] = None  # deprecated - prefer quantity + unit_price; still supported for direct override
+    line_items: Optional[List[PurchaseLineItemInput]] = None  # if provided, REPLACES ALL AI-extracted line items; omit to keep them as extracted
 
 
 @router.post("/{order_id}/confirm")
 def confirm_order(order_id: str, payload: ConfirmOrderRequest, db: Session = Depends(get_db)):
     """
     Human confirms a needs_review email-ingested order, optionally
-    correcting the customer, description, quantity, or unit price (always
-    excluding VAT) in the same action the AI extraction may have gotten
-    wrong. Only edits the PRIMARY (first) line item - additional line
-    items from a multi-item extraction (e.g. a delivery charge) are left
-    untouched and their total is preserved in order.total.
+    correcting the customer, supplier, description, or the FULL set of
+    line items (descriptions/quantities/unit prices, always excluding
+    VAT) the AI extraction may have gotten wrong. Supports orders with
+    any number of lines - if `line_items` is provided it must contain
+    every line for the order (the GUI fetches the current full list via
+    GET /api/purchases/{id} before letting a technician edit and confirm).
     """
     order = db.query(models.AmazonOrder).filter(models.AmazonOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
     if payload.customer_id:
+        customer = db.query(models.Customer).get(payload.customer_id)
+        if not customer:
+            raise HTTPException(404, "Customer not found")
         order.customer_id = payload.customer_id
+
+    if payload.supplier is not None:
+        order.supplier = payload.supplier
     if payload.description is not None:
         order.description = payload.description
 
-    if payload.quantity is not None or payload.unit_price is not None:
-        line_items = list(order.line_items)
-        primary = line_items[0] if line_items else None
-        other_items_total = sum(li.quantity * li.unit_price for li in line_items[1:]) if len(line_items) > 1 else 0.0
-
-        new_quantity = payload.quantity if payload.quantity is not None else (primary.quantity if primary else 1.0)
-        new_unit_price = payload.unit_price if payload.unit_price is not None else (primary.unit_price if primary else order.total)
-
-        if primary:
-            primary.quantity = new_quantity
-            primary.unit_price = new_unit_price
-            if payload.description is not None:
-                primary.description = payload.description
-        else:
-            db.add(models.AmazonOrderLineItem(
-                order_id=order.id,
-                description=payload.description or order.description or "Item",
-                quantity=new_quantity, unit_price=new_unit_price,
-            ))
-
-        order.total = round(other_items_total + (new_quantity * new_unit_price), 2)  # excluding VAT
-    elif payload.total_override is not None:
-        order.total = payload.total_override  # excluding VAT
+    if payload.line_items is not None:
+        try:
+            order.total = replace_line_items(db, order, [li.dict() for li in payload.line_items])
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     if not order.customer_id:
         raise HTTPException(

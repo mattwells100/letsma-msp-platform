@@ -3,7 +3,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="page-title">Purchasing</h2>
-    <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newPurchaseModal">
+    <button class="btn btn-sm text-white" style="background-color:#0b2545" onclick="openNewPurchaseModal()">
         <i class="bi bi-plus-lg"></i> Log Purchase
     </button>
 </div>
@@ -14,49 +14,32 @@
 {% if needs_review_orders %}
 <div class="card stat-card p-3 mb-4" style="border-left: 4px solid #e0a800">
     <h5 class="mb-3"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Needs Review ({{ needs_review_orders|length }})</h5>
-    <p class="small text-muted mb-3">These orders were automatically captured from <code>orders@letsma.co.uk</code> and extracted by AI. All prices shown/entered here are <strong>excluding VAT</strong>. Correct anything that looks wrong, assign the right customer, then confirm.</p>
+    <p class="small text-muted mb-3">These orders were automatically captured from <code>orders@letsma.co.uk</code> and extracted by AI. All prices are <strong>excluding VAT</strong>. Use <strong>Review Items</strong> to check/correct every line (orders can have more than one), or <strong>Confirm</strong> to accept the AI extraction as-is.</p>
     <table class="table align-middle">
         <thead>
             <tr>
                 <th>Supplier</th>
                 <th>Order Ref</th>
                 <th>Extracted For</th>
-                <th style="min-width:200px">Description</th>
-                <th style="width:90px">Qty</th>
-                <th style="width:130px">Unit Price (ex VAT)</th>
-                <th style="width:110px">Total (ex VAT)</th>
+                <th>Items</th>
+                <th>Total (ex VAT)</th>
                 <th>Assign Customer</th>
                 <th></th>
             </tr>
         </thead>
         <tbody>
         {% for o in needs_review_orders %}
-        {% set primary = o.line_items[0] if o.line_items else none %}
             <tr id="review-row-{{ o.id }}">
-                <td><strong>{{ o.supplier }}</strong>
-                    {% if o.line_items|length > 1 %}
-                        <div class="small"><span class="badge bg-info text-dark" title="This order has additional line items not shown/edited here (e.g. delivery). Their total is preserved automatically.">+{{ o.line_items|length - 1 }} more item(s)</span></div>
-                    {% endif %}
-                </td>
+                <td><strong>{{ o.supplier }}</strong></td>
                 <td>{{ o.amazon_order_id }}</td>
                 <td class="small text-muted">{{ o.end_user_hint or '—' }}</td>
                 <td>
-                    <input type="text" class="form-control form-control-sm" id="desc-{{ o.id }}" value="{{ o.description or '' }}">
-                </td>
-                <td>
-                    <input type="number" step="any" min="0" class="form-control form-control-sm review-qty" id="qty-{{ o.id }}"
-                           value="{{ primary.quantity if primary else 1.0 }}" oninput="recalcReviewTotal('{{ o.id }}')">
-                </td>
-                <td>
-                    <input type="number" step="0.01" min="0" class="form-control form-control-sm review-price" id="price-{{ o.id }}"
-                           value="{{ '%.2f'|format(primary.unit_price if primary else o.total) }}" oninput="recalcReviewTotal('{{ o.id }}')">
-                </td>
-                <td>
-                    <span id="total-{{ o.id }}">{{ o.currency }} {{ "%.2f"|format(o.total) }}</span>
-                    {% if o.line_items|length > 1 %}
-                        <div class="small text-muted">+ other items</div>
+                    <span class="badge bg-info text-dark">{{ o.line_item_count }} item{{ 's' if o.line_item_count != 1 else '' }}</span>
+                    {% if o.extraction_status == 'failed' %}
+                        <div class="small mt-1"><span class="badge bg-danger">Extraction failed</span></div>
                     {% endif %}
                 </td>
+                <td>{{ o.currency }} {{ "%.2f"|format(o.total) }}</td>
                 <td>
                     <select class="form-select form-select-sm" id="customer-select-{{ o.id }}" style="max-width:200px">
                         <option value="">-- Select customer --</option>
@@ -64,12 +47,12 @@
                             <option value="{{ c.id }}" {% if o.customer_id == c.id %}selected{% endif %}>{{ c.name }}</option>
                         {% endfor %}
                     </select>
-                    {% if o.extraction_status == 'failed' %}
-                        <div class="small mt-1"><span class="badge bg-danger">Extraction failed</span></div>
-                    {% endif %}
                 </td>
                 <td class="text-nowrap">
-                    <button class="btn btn-sm btn-success" onclick="confirmPurchase('{{ o.id }}')">
+                    <button class="btn btn-sm btn-outline-primary" onclick="openReviewModal('{{ o.id }}')" title="View and correct every line item before confirming">
+                        <i class="bi bi-pencil-square"></i> Review Items
+                    </button>
+                    <button class="btn btn-sm btn-success" onclick="quickConfirmPurchase('{{ o.id }}')" title="Confirm using the AI-extracted items as-is">
                         <i class="bi bi-check-lg"></i> Confirm
                     </button>
                     <button class="btn btn-sm btn-outline-danger" onclick="deletePurchase('{{ o.id }}', 'review-row-{{ o.id }}')" title="Discard this draft">
@@ -96,6 +79,8 @@
                 <th>Order Ref</th>
                 <th>Description</th>
                 <th>Customer</th>
+                <th>Qty</th>
+                <th>Unit Price (ex VAT)</th>
                 <th>Total (ex VAT)</th>
                 <th>Source</th>
                 <th>Invoiced</th>
@@ -110,6 +95,20 @@
                 <td>{{ o.amazon_order_id }}</td>
                 <td class="small text-muted">{{ o.description or '-' }}</td>
                 <td>{{ o.customer.name if o.customer else '—' }}</td>
+                <td>
+                    {% if o.line_items|length == 1 %}
+                        {{ "%g"|format(o.line_items[0].quantity) }}
+                    {% else %}
+                        <span class="badge bg-secondary">{{ o.line_items|length }} items</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if o.line_items|length == 1 %}
+                        {{ o.currency }} {{ "%.2f"|format(o.line_items[0].unit_price) }}
+                    {% else %}
+                        <span class="text-muted small">varies</span>
+                    {% endif %}
+                </td>
                 <td>{{ o.currency }} {{ "%.2f"|format(o.total) }}</td>
                 <td><span class="badge bg-secondary">{{ o.source }}</span></td>
                 <td>
@@ -131,163 +130,231 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="9" class="text-muted">No purchases logged yet.</td></tr>
+            <tr><td colspan="11" class="text-muted">No purchases logged yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
 </div>
 
-<!-- New Purchase Modal: submits via fetch() to the JSON API -->
-<div class="modal fade" id="newPurchaseModal" tabindex="-1">
-  <div class="modal-dialog">
+<!-- ============================================================ -->
+<!-- Shared Purchase / Line Items Modal                            -->
+<!-- Used for: Log Purchase (create), Edit (All Purchases), and   -->
+<!-- Review & Confirm (Needs Review) - the mode is tracked in JS   -->
+<!-- via pimMode / pimOrderId below.                               -->
+<!-- ============================================================ -->
+<div class="modal fade" id="purchaseItemsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">Log Purchase</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header">
+        <h5 class="modal-title" id="pim-title">Purchase</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
       <div class="modal-body">
-        <form id="newPurchaseForm">
-          <div class="mb-2"><label class="form-label">Supplier</label><input class="form-control" name="supplier" required placeholder="e.g. CDW, Ingram Micro, Local Shop"></div>
-          <div class="mb-2"><label class="form-label">Description</label><input class="form-control" name="description" required></div>
-          <div class="row">
-            <div class="col-6 mb-2"><label class="form-label">Quantity</label><input class="form-control" name="quantity" type="number" step="any" min="0" value="1" oninput="recalcNewPurchaseTotal()" id="newQty"></div>
-            <div class="col-6 mb-2"><label class="form-label">Unit Price (£, ex VAT)</label><input class="form-control" name="unit_price" type="number" step="0.01" min="0" required oninput="recalcNewPurchaseTotal()" id="newUnitPrice"></div>
-          </div>
-          <div class="mb-2 small text-muted">Total (ex VAT): £<span id="newPurchaseTotal">0.00</span></div>
-          <div class="mb-2"><label class="form-label">Order Reference (optional)</label><input class="form-control" name="order_reference"></div>
-          <div class="mb-2">
-            <label class="form-label">Assign to Customer (optional)</label>
-            <select class="form-select" name="customer_id">
-                <option value="">-- Unassigned --</option>
-                {% for c in customers %}
-                    <option value="{{ c.id }}">{{ c.name }}</option>
-                {% endfor %}
-            </select>
-          </div>
-        </form>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary" onclick="submitNewPurchase()">Create</button>
-      </div>
-    </div>
-  </div>
-</div>
+        <div class="row">
+            <div class="col-6 mb-2">
+                <label class="form-label">Supplier</label>
+                <input class="form-control" id="pim-supplier">
+            </div>
+            <div class="col-6 mb-2">
+                <label class="form-label">Customer</label>
+                <select class="form-select" id="pim-customer">
+                    <option value="">-- Unassigned --</option>
+                    {% for c in customers %}
+                        <option value="{{ c.id }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Order Reference</label>
+            <input class="form-control" id="pim-orderref" placeholder="Leave blank to auto-generate">
+        </div>
 
-<!-- Edit Purchase Modal: shared across all rows in "All Purchases" -->
-<div class="modal fade" id="editPurchaseModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">Edit Purchase</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-      <div class="modal-body">
-        <div id="editOtherItemsNote" class="alert alert-info small d-none"></div>
-        <form id="editPurchaseForm">
-          <div class="mb-2"><label class="form-label">Supplier</label><input class="form-control" name="supplier" id="editSupplier"></div>
-          <div class="mb-2"><label class="form-label">Description</label><input class="form-control" name="description" id="editDescription"></div>
-          <div class="row">
-            <div class="col-6 mb-2"><label class="form-label">Quantity</label><input class="form-control" name="quantity" type="number" step="any" min="0" id="editQuantity" oninput="recalcEditTotal()"></div>
-            <div class="col-6 mb-2"><label class="form-label">Unit Price (£, ex VAT)</label><input class="form-control" name="unit_price" type="number" step="0.01" min="0" id="editUnitPrice" oninput="recalcEditTotal()"></div>
-          </div>
-          <div class="mb-2 small text-muted">Total (ex VAT): £<span id="editPurchaseTotal">0.00</span></div>
-          <div class="mb-2">
-            <label class="form-label">Customer</label>
-            <select class="form-select" id="editCustomerId">
-                <option value="">-- Unassigned --</option>
-                {% for c in customers %}
-                    <option value="{{ c.id }}">{{ c.name }}</option>
-                {% endfor %}
-            </select>
-          </div>
-        </form>
+        <label class="form-label">Line Items <span class="small text-muted">(all prices excluding VAT)</span></label>
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th style="width:100px">Qty</th>
+                    <th style="width:140px">Unit Price</th>
+                    <th style="width:110px">Line Total</th>
+                    <th style="width:40px"></th>
+                </tr>
+            </thead>
+            <tbody id="pim-lineItemsBody"></tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-outline-secondary mb-2" onclick="addLineItemRow('pim')">
+            <i class="bi bi-plus-lg"></i> Add line
+        </button>
+        <div class="text-end fw-bold">Total (ex VAT): £<span id="pim-lineItemsTotal">0.00</span></div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-primary" onclick="submitEditPurchase()">Save Changes</button>
+        <button class="btn btn-primary" id="pim-saveBtn" onclick="submitPurchaseItemsModal()">Save</button>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-let currentEditOrderId = null;
+let pimMode = 'create';       // 'create' | 'edit' | 'confirm'
+let pimOrderId = null;
+let lineItemRowCounter = 0;
 
-function recalcReviewTotal(orderId) {
-    const qty = parseFloat(document.getElementById('qty-' + orderId).value) || 0;
-    const price = parseFloat(document.getElementById('price-' + orderId).value) || 0;
-    document.getElementById('total-' + orderId).textContent = (qty * price).toFixed(2);
+// --- Generic line-item editor (used inside the shared modal above) ---
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
 }
 
-function recalcNewPurchaseTotal() {
-    const qty = parseFloat(document.getElementById('newQty').value) || 0;
-    const price = parseFloat(document.getElementById('newUnitPrice').value) || 0;
-    document.getElementById('newPurchaseTotal').textContent = (qty * price).toFixed(2);
+function addLineItemRow(prefix, item) {
+    item = item || {description: '', quantity: 1, unit_price: 0};
+    const tbody = document.getElementById(prefix + '-lineItemsBody');
+    const rowId = prefix + '-li-row-' + (lineItemRowCounter++);
+    const tr = document.createElement('tr');
+    tr.id = rowId;
+    tr.innerHTML = `
+        <td><input type="text" class="form-control form-control-sm li-desc" value="${escapeHtml(item.description)}"></td>
+        <td><input type="number" step="any" min="0" class="form-control form-control-sm li-qty" value="${item.quantity}" oninput="recalcLineItemsTotal('${prefix}')"></td>
+        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm li-price" value="${Number(item.unit_price).toFixed(2)}" oninput="recalcLineItemsTotal('${prefix}')"></td>
+        <td class="li-linetotal small text-muted">0.00</td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeLineItemRow('${prefix}', '${rowId}')"><i class="bi bi-x-lg"></i></button></td>
+    `;
+    tbody.appendChild(tr);
+    recalcLineItemsTotal(prefix);
 }
 
-function recalcEditTotal() {
-    const qty = parseFloat(document.getElementById('editQuantity').value) || 0;
-    const price = parseFloat(document.getElementById('editUnitPrice').value) || 0;
-    document.getElementById('editPurchaseTotal').textContent = (qty * price).toFixed(2);
+function removeLineItemRow(prefix, rowId) {
+    const row = document.getElementById(rowId);
+    if (row) row.remove();
+    recalcLineItemsTotal(prefix);
 }
 
-async function submitNewPurchase() {
-    const form = document.getElementById('newPurchaseForm');
-    const data = Object.fromEntries(new FormData(form).entries());
-    data.quantity = parseFloat(data.quantity) || 1;
-    data.unit_price = parseFloat(data.unit_price) || 0;
-    if (!data.customer_id) delete data.customer_id;
-    if (!data.order_reference) delete data.order_reference;
-    const resp = await fetch('/api/purchases/', {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+function recalcLineItemsTotal(prefix) {
+    const tbody = document.getElementById(prefix + '-lineItemsBody');
+    let total = 0;
+    tbody.querySelectorAll('tr').forEach(function(tr) {
+        const qty = parseFloat(tr.querySelector('.li-qty').value) || 0;
+        const price = parseFloat(tr.querySelector('.li-price').value) || 0;
+        const lineTotal = qty * price;
+        tr.querySelector('.li-linetotal').textContent = lineTotal.toFixed(2);
+        total += lineTotal;
     });
-    if (resp.ok) { window.location.reload(); } else { alert('Failed to create purchase: ' + await resp.text()); }
+    document.getElementById(prefix + '-lineItemsTotal').textContent = total.toFixed(2);
 }
 
-async function confirmPurchase(orderId) {
-    const customerId = document.getElementById('customer-select-' + orderId).value;
-    if (!customerId) { alert('Please select a customer before confirming.'); return; }
-    const payload = {
-        customer_id: customerId,
-        description: document.getElementById('desc-' + orderId).value,
-        quantity: parseFloat(document.getElementById('qty-' + orderId).value) || 1,
-        unit_price: parseFloat(document.getElementById('price-' + orderId).value) || 0,
-    };
-    const resp = await fetch(`/api/purchasing/email-ingestion/${orderId}/confirm`, {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+function collectLineItems(prefix) {
+    const tbody = document.getElementById(prefix + '-lineItemsBody');
+    const items = [];
+    tbody.querySelectorAll('tr').forEach(function(tr) {
+        items.push({
+            description: tr.querySelector('.li-desc').value,
+            quantity: parseFloat(tr.querySelector('.li-qty').value) || 0,
+            unit_price: parseFloat(tr.querySelector('.li-price').value) || 0,
+        });
     });
-    if (resp.ok) { window.location.reload(); } else { alert('Failed to confirm purchase: ' + await resp.text()); }
+    return items;
+}
+
+function clearLineItems(prefix) {
+    document.getElementById(prefix + '-lineItemsBody').innerHTML = '';
+    recalcLineItemsTotal(prefix);
+}
+
+// --- Opening the shared modal in each of its three modes ---
+
+function openNewPurchaseModal() {
+    pimMode = 'create';
+    pimOrderId = null;
+    document.getElementById('pim-title').textContent = 'Log Purchase';
+    document.getElementById('pim-saveBtn').textContent = 'Create';
+    document.getElementById('pim-supplier').value = '';
+    document.getElementById('pim-customer').value = '';
+    document.getElementById('pim-orderref').value = '';
+    document.getElementById('pim-orderref').disabled = false;
+    clearLineItems('pim');
+    addLineItemRow('pim');
+    new bootstrap.Modal(document.getElementById('purchaseItemsModal')).show();
 }
 
 async function openEditModal(orderId) {
     const resp = await fetch(`/api/purchases/${orderId}`);
-    if (!resp.ok) { alert('Failed to load purchase details: ' + await resp.text()); return; }
+    if (!resp.ok) { alert('Failed to load purchase: ' + await resp.text()); return; }
     const data = await resp.json();
-    currentEditOrderId = orderId;
-    document.getElementById('editSupplier').value = data.supplier || '';
-    document.getElementById('editDescription').value = data.description || '';
-    document.getElementById('editQuantity').value = data.quantity;
-    document.getElementById('editUnitPrice').value = data.unit_price.toFixed(2);
-    document.getElementById('editCustomerId').value = data.customer_id || '';
-    recalcEditTotal();
-
-    const noteEl = document.getElementById('editOtherItemsNote');
-    if (data.other_line_items_count > 0) {
-        noteEl.textContent = `This order has ${data.other_line_items_count} additional line item(s) totalling £${data.other_line_items_total.toFixed(2)} (ex VAT), not shown here. Their total is preserved automatically when you save.`;
-        noteEl.classList.remove('d-none');
-    } else {
-        noteEl.classList.add('d-none');
-    }
-
-    new bootstrap.Modal(document.getElementById('editPurchaseModal')).show();
+    pimMode = 'edit';
+    pimOrderId = orderId;
+    document.getElementById('pim-title').textContent = 'Edit Purchase';
+    document.getElementById('pim-saveBtn').textContent = 'Save Changes';
+    document.getElementById('pim-supplier').value = data.supplier || '';
+    document.getElementById('pim-customer').value = data.customer_id || '';
+    document.getElementById('pim-orderref').value = data.order_reference || '';
+    document.getElementById('pim-orderref').disabled = true;
+    clearLineItems('pim');
+    data.line_items.forEach(function(li) { addLineItemRow('pim', li); });
+    new bootstrap.Modal(document.getElementById('purchaseItemsModal')).show();
 }
 
-async function submitEditPurchase() {
-    if (!currentEditOrderId) return;
-    const payload = {
-        supplier: document.getElementById('editSupplier').value,
-        description: document.getElementById('editDescription').value,
-        quantity: parseFloat(document.getElementById('editQuantity').value) || 1,
-        unit_price: parseFloat(document.getElementById('editUnitPrice').value) || 0,
-        customer_id: document.getElementById('editCustomerId').value,  // "" explicitly unassigns
-    };
-    const resp = await fetch(`/api/purchases/${currentEditOrderId}`, {
-        method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+async function openReviewModal(orderId) {
+    const resp = await fetch(`/api/purchases/${orderId}`);
+    if (!resp.ok) { alert('Failed to load purchase: ' + await resp.text()); return; }
+    const data = await resp.json();
+    pimMode = 'confirm';
+    pimOrderId = orderId;
+    document.getElementById('pim-title').textContent = 'Review & Confirm Purchase';
+    document.getElementById('pim-saveBtn').textContent = 'Confirm';
+    document.getElementById('pim-supplier').value = data.supplier || '';
+    const inlineSelect = document.getElementById('customer-select-' + orderId);
+    document.getElementById('pim-customer').value = (inlineSelect && inlineSelect.value) || data.customer_id || '';
+    document.getElementById('pim-orderref').value = data.order_reference || '';
+    document.getElementById('pim-orderref').disabled = true;
+    clearLineItems('pim');
+    data.line_items.forEach(function(li) { addLineItemRow('pim', li); });
+    new bootstrap.Modal(document.getElementById('purchaseItemsModal')).show();
+}
+
+async function submitPurchaseItemsModal() {
+    const items = collectLineItems('pim');
+    if (items.length === 0) { alert('Add at least one line item.'); return; }
+    const customerId = document.getElementById('pim-customer').value;
+    const supplier = document.getElementById('pim-supplier').value;
+
+    if (pimMode === 'create') {
+        const payload = { supplier: supplier, line_items: items };
+        const orderRef = document.getElementById('pim-orderref').value;
+        if (orderRef) payload.order_reference = orderRef;
+        if (customerId) payload.customer_id = customerId;
+        const resp = await fetch('/api/purchases/', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        if (resp.ok) { window.location.reload(); } else { alert('Failed to create purchase: ' + await resp.text()); }
+
+    } else if (pimMode === 'edit') {
+        const payload = { supplier: supplier, customer_id: customerId, line_items: items };
+        const resp = await fetch(`/api/purchases/${pimOrderId}`, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        if (resp.ok) { window.location.reload(); } else { alert('Failed to save changes: ' + await resp.text()); }
+
+    } else if (pimMode === 'confirm') {
+        if (!customerId) { alert('Please select a customer before confirming.'); return; }
+        const payload = { customer_id: customerId, supplier: supplier, line_items: items };
+        const resp = await fetch(`/api/purchasing/email-ingestion/${pimOrderId}/confirm`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        if (resp.ok) { window.location.reload(); } else { alert('Failed to confirm purchase: ' + await resp.text()); }
+    }
+}
+
+// --- Needs Review row actions that don't open the modal ---
+
+async function quickConfirmPurchase(orderId) {
+    const customerId = document.getElementById('customer-select-' + orderId).value;
+    if (!customerId) { alert('Please select a customer before confirming.'); return; }
+    const resp = await fetch(`/api/purchasing/email-ingestion/${orderId}/confirm`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({customer_id: customerId})
     });
-    if (resp.ok) { window.location.reload(); } else { alert('Failed to save changes: ' + await resp.text()); }
+    if (resp.ok) { window.location.reload(); } else { alert('Failed to confirm purchase: ' + await resp.text()); }
 }
 
 async function deletePurchase(orderId, rowId) {
