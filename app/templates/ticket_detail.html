@@ -2,7 +2,15 @@
 {% block title %}Ticket #{{ ticket.ticket_number }} - Letsma MSP{% endblock %}
 {% block content %}
 <h2 class="page-title mb-1">#{{ ticket.ticket_number }} &middot; {{ ticket.subject }}</h2>
-<div class="text-muted mb-4">{{ ticket.customer.name }} &middot; Logged via {{ ticket.source.value if ticket.source.value is defined else ticket.source }}</div>
+<div class="text-muted mb-1">
+    {{ ticket.customer.name }} &middot; Logged via {{ ticket.source.value if ticket.source.value is defined else ticket.source }}
+    {% if ticket.contact %} &middot; Contact: {{ ticket.contact.name }}{% endif %}
+</div>
+<div class="text-muted small mb-4">
+    <i class="bi bi-clock-history"></i> Created {{ ticket.created_at.strftime('%d %b %Y at %H:%M') }}
+    &middot; Last updated {{ ticket.updated_at.strftime('%d %b %Y at %H:%M') }}
+    {% if ticket.resolved_at %} &middot; Resolved {{ ticket.resolved_at.strftime('%d %b %Y at %H:%M') }}{% endif %}
+</div>
 
 <div class="row g-4">
     <div class="col-md-8">
@@ -45,6 +53,15 @@
                 {% endfor %}
             </select>
         </div>
+
+        <div class="card stat-card p-3 mt-3">
+            <h6 class="page-title">End User</h6>
+            <p class="small text-muted mb-2">The specific person at {{ ticket.customer.name }} this ticket is for.</p>
+            <select class="form-select" id="ticketContactSelect" onchange="updateTicket('contact_id', this.value)">
+                <option value="">Loading contacts...</option>
+            </select>
+        </div>
+
 <div class="card stat-card p-3 mt-3">
     <h6 class="page-title"><i class="bi bi-stars"></i> AI-Drafted Reply</h6>
     <p class="small text-muted mb-2">Generates a suggested reply based on this ticket's description and conversation so far. Always review and edit before sending - nothing is posted automatically.</p>
@@ -193,5 +210,29 @@ async function logTime(e) {
     }
     return false;
 }
+
+// Populate the End User dropdown with this customer's contacts, then
+// pre-select whichever contact (if any) is currently assigned to the
+// ticket. Reuses the generic updateTicket() function above on change -
+// works because contact_id is now a valid field on TicketUpdate.
+(async function loadTicketContacts() {
+    const select = document.getElementById('ticketContactSelect');
+    const currentContactId = "{{ ticket.contact_id or '' }}";
+    try {
+        const resp = await fetch('/api/customers/{{ ticket.customer_id }}/contacts');
+        if (!resp.ok) {
+            select.innerHTML = '<option value="">-- Could not load contacts --</option>';
+            return;
+        }
+        const contacts = await resp.json();
+        let html = '<option value="">-- No specific contact --</option>';
+        html += contacts.map(c =>
+            `<option value="${c.id}" ${c.id === currentContactId ? 'selected' : ''}>${c.name}${c.email ? ' (' + c.email + ')' : ''}</option>`
+        ).join('');
+        select.innerHTML = html;
+    } catch (err) {
+        select.innerHTML = '<option value="">-- Could not load contacts --</option>';
+    }
+})();
 </script>
 {% endblock %}
