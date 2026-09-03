@@ -88,6 +88,30 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
         "active_page": "customers",
     })
 
+@router.get("/purchases")
+def purchases_page(request: Request, db: Session = Depends(get_db)):
+    customers = db.query(models.Customer).order_by(models.Customer.name).all()
+
+    # Email-ingested drafts awaiting human confirmation before they become
+    # billable (extraction_status defaults to "confirmed" for manual/
+    # csv_import orders, so this filter only ever surfaces email_auto rows
+    # that still need a look). Oldest first, so nothing sits forgotten.
+    needs_review_orders = (
+        db.query(models.AmazonOrder)
+        .filter(models.AmazonOrder.extraction_status.in_(["needs_review", "failed"]))
+        .order_by(models.AmazonOrder.ingested_at.asc())
+        .all()
+    )
+
+    all_orders = db.query(models.AmazonOrder).order_by(models.AmazonOrder.order_date.desc()).all()
+
+    return templates.TemplateResponse("purchases.html", {
+        "request": request,
+        "customers": customers,
+        "needs_review_orders": needs_review_orders,
+        "all_orders": all_orders,
+        "active_page": "purchases",
+    })
 
 @router.get("/tickets")
 def tickets_page(request: Request, db: Session = Depends(get_db)):
