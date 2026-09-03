@@ -6,10 +6,18 @@ in requirements.txt). Started once from app/main.py on application startup.
 
 Jobs:
   - helpdesk_mailbox_poll: polls helpdesk@letsma.co.uk, turns new emails
-    into support tickets. Runs every 5 minutes.
+    into support tickets, sends auto-reply/confirmation emails to
+    customers. Runs every 5 minutes. Gated on HELPDESK_GRAPH_CLIENT_ID -
+    deliberately left unconfigured in production until you're confident
+    it won't send unintended emails to real customers.
   - orders_mailbox_poll: polls orders@letsma.co.uk, turns new supplier
     order confirmation emails into draft (needs_review) AmazonOrder
-    records. Runs every 5 minutes.
+    records. NEVER sends any email to anyone - purely internal record
+    creation, landing in a human-review queue before anything is
+    billable. Runs every 5 minutes. Gated on its OWN setting
+    (ORDERS_EMAIL_INGEST_ENABLED), completely independent of the
+    helpdesk job above - populating Graph credentials for one does NOT
+    silently turn on the other.
 """
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -38,10 +46,19 @@ async def _scheduled_helpdesk_poll_job():
 
 
 async def _scheduled_orders_poll_job():
-    if not settings.HELPDESK_GRAPH_CLIENT_ID:
-        # Purchasing email ingest currently reuses the helpdesk app
-        # registration's credentials - skip silently if that isn't
-        # configured yet, same convention as the helpdesk job above.
+    # Deliberately independent of HELPDESK_GRAPH_CLIENT_ID / the helpdesk
+    # job's enable check above. This job never sends any email to anyone
+    # (it only reads the orders mailbox and creates internal draft
+    # records), so it's safe to enable separately from - and without
+    # ever risking triggering - the helpdesk auto-reply/confirmation
+    # email feature.
+    if not settings.ORDERS_EMAIL_INGEST_ENABLED:
+        return
+    if not settings.ORDERS_GRAPH_CLIENT_ID or not settings.ORDERS_GRAPH_TENANT_ID or not settings.ORDERS_GRAPH_CLIENT_SECRET:
+        logger.warning(
+            "orders_mailbox_poll is enabled (ORDERS_EMAIL_INGEST_ENABLED=true) but "
+            "ORDERS_GRAPH_* credentials are not fully configured - skipping this run."
+        )
         return
     db = SessionLocal()
     try:

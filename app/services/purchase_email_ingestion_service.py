@@ -21,17 +21,20 @@ mailbox polling) so the two features behave consistently:
   - Attempts a best-effort customer match; NEVER auto-bills - every
     ingested order lands with extraction_status="needs_review" (source=
     "email_auto") and invoiced=False until a human confirms it via
-    /api/purchasing/email-ingestion/{id}/confirm. This is exactly the
-    same "unbilled" state your existing purchasing UI already reads for
-    manual/CSV-imported orders - email-ingested ones just add the extra
-    needs_review gate on top before they're considered trustworthy.
-  - Marks the source email as read once processed (matching the helpdesk
-    poller's behaviour).
+    /api/purchasing/email-ingestion/{id}/confirm.
+  - Marks the source email as read once processed.
+  - NEVER sends any email to anyone - unlike the helpdesk poller, there
+    is no auto-reply/confirmation step here. This is a read-only mailbox
+    consumer plus internal record creation only.
 
-Reuses the SAME Entra ID app registration/credentials as the helpdesk
-mailbox poller (settings.HELPDESK_GRAPH_*), since both mailboxes live in
-Letsma's own tenant. See README_SETUP.md for the Exchange Application
-Access Policy change this requires.
+Uses its OWN dedicated Entra ID app registration/credentials
+(settings.ORDERS_GRAPH_*), deliberately kept independent from the
+helpdesk mailbox poller's credentials (settings.HELPDESK_GRAPH_*) - see
+the long comment in config.py for why. You can point ORDERS_GRAPH_* at
+the same underlying Entra app as HELPDESK_GRAPH_* if you prefer not to
+register a second one; what matters is that the two features have
+independent on/off switches (see scheduler.py), not that the credential
+values happen to differ.
 """
 import base64
 import io
@@ -52,14 +55,14 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 # Auth
 # ---------------------------------------------------------------------------
 async def _get_orders_app_token() -> str:
-    token_url = f"https://login.microsoftonline.com/{settings.HELPDESK_GRAPH_TENANT_ID}/oauth2/v2.0/token"
+    token_url = f"https://login.microsoftonline.com/{settings.ORDERS_GRAPH_TENANT_ID}/oauth2/v2.0/token"
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             token_url,
             data={
                 "grant_type": "client_credentials",
-                "client_id": settings.HELPDESK_GRAPH_CLIENT_ID,
-                "client_secret": settings.HELPDESK_GRAPH_CLIENT_SECRET,
+                "client_id": settings.ORDERS_GRAPH_CLIENT_ID,
+                "client_secret": settings.ORDERS_GRAPH_CLIENT_SECRET,
                 "scope": "https://graph.microsoft.com/.default",
             },
         )
