@@ -4,7 +4,11 @@
 <h2 class="page-title mb-1">#{{ ticket.ticket_number }} &middot; {{ ticket.subject }}</h2>
 <div class="text-muted mb-1">
     {{ ticket.customer.name if ticket.customer else 'Unassigned' }} &middot; Logged via {{ ticket.source.value if ticket.source.value is defined else ticket.source }}
-    {% if ticket.contact %} &middot; Contact: {{ ticket.contact.name }}{% endif %}
+    {% if ticket.contact %}
+        &middot; Contact: {{ ticket.contact.name }}{% if ticket.contact.email %} ({{ ticket.contact.email }}){% endif %}
+    {% elif ticket.reporter_name or ticket.reporter_email %}
+        &middot; Reported by: {{ ticket.reporter_name or 'Unknown' }}{% if ticket.reporter_email %} ({{ ticket.reporter_email }}){% endif %}
+    {% endif %}
 </div>
 <div class="text-muted small mb-2">
     <i class="bi bi-clock-history"></i> Created {{ ticket.created_at.strftime('%d %b %Y at %H:%M') }}
@@ -14,16 +18,14 @@
 {% if not ticket.customer and (ticket.reporter_name or ticket.reporter_email) %}
 <div class="alert alert-warning py-2 mb-4">
     <i class="bi bi-exclamation-triangle-fill"></i>
-    No customer assigned yet. This ticket was reported by
-    <strong>{{ ticket.reporter_name or 'Unknown' }}</strong>{% if ticket.reporter_email %} &lt;{{ ticket.reporter_email }}&gt;{% endif %}
-    - use the <strong>Customer</strong> panel on the right to assign it once you know who they are.
+    No customer assigned yet - use the <strong>Customer</strong> panel on the right to assign it once you know who this is.
 </div>
 {% endif %}
 
 <div class="row g-4">
     <div class="col-md-8">
         <div class="card stat-card p-3 mb-3">
-            <p>{{ ticket.description or 'No description provided.' }}</p>
+            <div style="white-space: pre-wrap; word-break: break-word;">{{ ticket.description or 'No description provided.' }}</div>
         </div>
         <div class="card stat-card p-3">
             <h5 class="page-title">Activity</h5>
@@ -31,7 +33,7 @@
                 <div class="border-bottom py-2">
                     <strong>{{ c.author }}</strong> <span class="small text-muted">{{ c.created_at.strftime('%d %b %Y %H:%M') }}</span>
                     {% if c.is_internal_note %}<span class="badge bg-warning text-dark">Internal</span>{% endif %}
-                    <div>{{ c.message }}</div>
+                    <div style="white-space: pre-wrap; word-break: break-word;">{{ c.message }}</div>
                 </div>
             {% else %}
                 <div class="text-muted">No comments yet.</div>

@@ -16,6 +16,16 @@ inbound emails into helpdesk tickets automatically. Handles:
     review and manually assign the right customer afterwards, rather
     than the email being silently dropped.
 
+TICKET DESCRIPTION FORMATTING: the description is stored as just the
+CLEAN message body (no "From: X <Y>" prefix) - who reported the ticket
+is instead shown properly in the ticket detail page UI (via contact_id /
+reporter_name / reporter_email), so it isn't duplicated as unstructured
+text at the top of the description. _strip_html() converts a much wider
+set of block-level HTML tags to newlines than a naive <br>-only approach,
+since Outlook/Exchange HTML emails commonly use <div>/<tr>/<li> for
+structure rather than <br> - without this, unrelated lines get squashed
+together into an unreadable wall of text once rendered.
+
 OUTBOUND EMAIL IS DISABLED BY DEFAULT: neither the keyword-triggered
 auto-reply nor the "we've logged your ticket" confirmation email is sent
 unless settings.HELPDESK_AUTO_REPLIES_ENABLED is explicitly set to true.
@@ -126,15 +136,43 @@ _GMAIL_FORWARD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Block-level HTML tags whose CLOSE (or self-closing form, for <br>) should
+# become a newline when converting to plain text. Deliberately wider than
+# just <br>/</p> - Outlook/Exchange HTML emails frequently use <div>, table
+# rows/cells, and list items for layout rather than <br>, and without this
+# those all get squashed onto one line, producing an unreadable wall of
+# text once rendered in the ticket description.
+_BLOCK_CLOSE_TAGS_RE = re.compile(
+    r"</?(?:br|p|div|tr|td|li|h[1-6]|table|ul|ol)\s*/?>",
+    re.IGNORECASE,
+)
+
 
 def _strip_html(text: str) -> str:
-    """Very small, dependency-free HTML-to-text conversion, good enough for
-    parsing forwarded email headers (which are plain structured text even
-    inside an HTML body)."""
-    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"</p>", "\n", text, flags=re.IGNORECASE)
+    """
+    Dependency-free HTML-to-text conversion good enough for both parsing
+    forwarded email headers (plain structured text even inside an HTML
+    body) and producing a readable plain-text ticket description.
+    Converts a wide set of block-level tags to newlines (see
+    _BLOCK_CLOSE_TAGS_RE), strips all remaining tags, unescapes HTML
+    entities, then collapses 3+ consecutive blank lines down to a single
+    blank line and trims leading/trailing whitespace - without this,
+    heavily-nested HTML emails can produce dozens of stray blank lines.
+
+    Also converts non-breaking spaces (\\xa0) to regular spaces BEFORE
+    blank-line collapsing - Outlook commonly inserts "<div>&nbsp;</div>"
+    as a spacer between paragraphs, and &nbsp; unescapes to \\xa0 rather
+    than a plain space, which would otherwise dodge the blank-line
+    detection below and leave visually-blank-but-not-empty lines behind.
+    """
+    text = _BLOCK_CLOSE_TAGS_RE.sub("\n", text)
     text = re.sub(r"<[^>]+>", "", text)
-    return html.unescape(text)
+    text = html.unescape(text)
+    text = text.replace("\xa0", " ")
+    lines = [line.rstrip() for line in text.split("\n")]  # strip trailing whitespace per line
+    text = "\n".join(lines)
+    text = re.sub(r"\n{3,}", "\n\n", text)        # collapse excessive blank lines
+    return text.strip()
 
 
 def parse_forwarded_email(subject: str, body_content: str, body_content_type: str = "text"):
@@ -323,6 +361,14 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
     # original reporter's name/email are preserved on the ticket itself
     # so a technician can review and manually assign the right customer
     # later via the ticket detail page.
+    #
+    # The description stores ONLY the clean message body - who sent it is
+    # deliberately NOT prefixed here as "From: X <Y>" text, since that
+    # information is preserved structurally on reporter_name/
+    # reporter_email/contact_id and shown properly in the ticket detail
+    # page UI. Embedding it as unstructured text at the top of the body
+    # both duplicates that display and makes the description harder to
+    # read.
     ticket = Ticket(
         ticket_number=next_ticket_number(db),
         customer_id=customer.id if customer else None,
@@ -330,7 +376,7 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
         reporter_name=effective_name or None,
         reporter_email=effective_email or None,
         subject=effective_subject[:255] or "(no subject)",
-        description=f"From: {effective_name} <{effective_email}>\n\n{effective_body}",
+        description=effective_body.strip() or "(no message content)",
         priority=TicketPriority.NORMAL,
         source=TicketSource.EMAIL,
         external_ref=graph_message_id,
