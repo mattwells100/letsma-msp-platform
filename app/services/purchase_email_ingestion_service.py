@@ -27,14 +27,19 @@ mailbox polling) so the two features behave consistently:
     is no auto-reply/confirmation step here. This is a read-only mailbox
     consumer plus internal record creation only.
 
+VAT convention (IMPORTANT): every price stored in AmazonOrder.total and
+AmazonOrderLineItem.unit_price is ALWAYS excluding VAT, matching the
+convention used everywhere else in the purchasing module (see
+app/routers/purchases.py docstring). The AI extraction returns both an
+inc-VAT total and an ex-VAT subtotal where the source email states both;
+_compute_ex_vat_total() below always prefers the ex-VAT figure and never
+stores an inc-VAT amount, even as a fallback, unless VAT genuinely cannot
+be determined from the email at all.
+
 Uses its OWN dedicated Entra ID app registration/credentials
 (settings.ORDERS_GRAPH_*), deliberately kept independent from the
 helpdesk mailbox poller's credentials (settings.HELPDESK_GRAPH_*) - see
-the long comment in config.py for why. You can point ORDERS_GRAPH_* at
-the same underlying Entra app as HELPDESK_GRAPH_* if you prefer not to
-register a second one; what matters is that the two features have
-independent on/off switches (see scheduler.py), not that the credential
-values happen to differ.
+the long comment in config.py for why.
 """
 import base64
 import io
@@ -118,6 +123,50 @@ async def _get_attachment_texts(token: str, message_id: str) -> list:
             if pdf_text:
                 texts.append(pdf_text)
     return texts
+
+
+# ---------------------------------------------------------------------------
+# VAT handling
+# ---------------------------------------------------------------------------
+def _compute_ex_vat_total(extracted: dict) -> float:
+    """
+    Always returns a cost figure EXCLUDING VAT, per the module-wide
+    convention (see docstring above and app/routers/purchases.py).
+    Preference order:
+      1. extracted["subtotal_ex_vat"] if the model found it directly.
+      2. total_inc_vat - vat, if both are present (derives the ex-VAT
+         figure even when the supplier only printed the inc-VAT total
+         and the VAT line separately).
+      3. total_inc_vat as an absolute last resort, if VAT genuinely
+         couldn't be determined at all - better to have an approximate
+         figure flagged as needs_review than none, but this should be
+         rare given most supplier confirmations state VAT explicitly.
+    """
+    if extracted.get("subtotal_ex_vat") is not None:
+        return round(extracted["subtotal_ex_vat"], 2)
+
+    total_inc = extracted.get("total_inc_vat")
+    vat = extracted.get("vat")
+    if total_inc is not None and vat is not None:
+        return round(total_inc - vat, 2)
+
+    if total_inc is not None:
+        return round(total_inc, 2)
+
+    return 0.0
+
+
+def _compute_ex_vat_unit_cost(item: dict) -> float:
+    """
+    Line-item unit costs from the extraction prompt are already specified
+    as excluding VAT (see azure_openai_service.py's extraction prompt),
+    since itemized supplier invoices conventionally list unit prices
+    pre-tax with VAT totalled separately at the bottom. No further
+    adjustment needed here - this wrapper exists so the "always ex-VAT"
+    convention is visible and enforced at every point prices enter the
+    system, not just at the order-total level.
+    """
+    return item.get("unit_cost") or 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -243,12 +292,14 @@ async def process_single_order_email(db: Session, token: str, message: dict) -> 
         except (ValueError, TypeError):
             order_date = None  # leave null rather than guess a malformed date
 
+    ex_vat_total = _compute_ex_vat_total(extracted) if not extraction_error else 0.0
+
     order = AmazonOrder(
         amazon_order_id=order_reference,
         customer_id=customer_id,
         supplier=supplier,
         order_date=order_date,
-        total=extracted.get("total_inc_vat") or 0.0,
+        total=ex_vat_total,  # EXCLUDING VAT - see module docstring
         currency=extracted.get("currency") or "GBP",
         description=subject[:500] if subject else None,
         source="email_auto",
@@ -267,7 +318,7 @@ async def process_single_order_email(db: Session, token: str, message: dict) -> 
             order_id=order.id,
             description=(item.get("description") or "Unknown item")[:255],
             quantity=item.get("quantity") or 1.0,
-            unit_price=item.get("unit_cost") or 0.0,
+            unit_price=_compute_ex_vat_unit_cost(item),  # EXCLUDING VAT
         ))
 
     db.add(ProcessedPurchaseEmail(graph_message_id=graph_message_id, subject=subject, order_id=order.id))
