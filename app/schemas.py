@@ -41,7 +41,7 @@ class ContactOut(ContactCreate):
 
 # ---------------- Tickets ----------------
 class TicketCreate(BaseModel):
-    customer_id: str
+    customer_id: Optional[str] = None  # may be omitted - auto-ingested emails can create unassigned tickets
     contact_id: Optional[str] = None
     subject: str
     description: Optional[str] = None
@@ -55,6 +55,8 @@ class TicketUpdate(BaseModel):
     priority: Optional[str] = None
     assigned_to: Optional[str] = None
     contact_id: Optional[str] = None
+    customer_id: Optional[str] = None
+
 
 
 class TicketCommentCreate(BaseModel):
@@ -67,8 +69,10 @@ class TicketOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
     ticket_number: Optional[int]
-    customer_id: str
+    customer_id: Optional[str] = None
     contact_id: Optional[str] = None
+    reporter_name: Optional[str] = None
+    reporter_email: Optional[str] = None
     subject: str
     description: Optional[str]
     status: str
@@ -77,6 +81,7 @@ class TicketOut(BaseModel):
     assigned_to: Optional[str]
     created_at: datetime
     updated_at: datetime
+
 
 
 

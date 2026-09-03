@@ -175,6 +175,27 @@ def migrate_email_ticket_schema(db: Session = Depends(get_db), _=Depends(_check_
     db.commit()
     return {"ok": True, "statements_applied": applied}
 
+@router.post("/migrate-ticket-optional-customer-schema")
+def migrate_ticket_optional_customer_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    """
+    Allows tickets to exist without a customer assigned (for automatically
+    ingested helpdesk emails where the sender couldn't be matched to any
+    known customer), and adds reporter_name/reporter_email columns so the
+    original sender's details are preserved and easy to review even when
+    no customer match was found. Safe to re-run - DROP NOT NULL is a
+    no-op if already nullable, and the ADD COLUMN statements check
+    IF NOT EXISTS.
+    """
+    statements = [
+        "ALTER TABLE tickets ALTER COLUMN customer_id DROP NOT NULL",
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS reporter_name VARCHAR",
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS reporter_email VARCHAR",
+    ]
+    for stmt in statements:
+        db.execute(text(stmt))
+    db.commit()
+    return {"status": "ok", "statements_run": len(statements)}
+
 
 @router.post("/migrate-purchasing-schema")
 def migrate_purchasing_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):

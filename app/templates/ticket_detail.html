@@ -3,14 +3,22 @@
 {% block content %}
 <h2 class="page-title mb-1">#{{ ticket.ticket_number }} &middot; {{ ticket.subject }}</h2>
 <div class="text-muted mb-1">
-    {{ ticket.customer.name }} &middot; Logged via {{ ticket.source.value if ticket.source.value is defined else ticket.source }}
+    {{ ticket.customer.name if ticket.customer else 'Unassigned' }} &middot; Logged via {{ ticket.source.value if ticket.source.value is defined else ticket.source }}
     {% if ticket.contact %} &middot; Contact: {{ ticket.contact.name }}{% endif %}
 </div>
-<div class="text-muted small mb-4">
+<div class="text-muted small mb-2">
     <i class="bi bi-clock-history"></i> Created {{ ticket.created_at.strftime('%d %b %Y at %H:%M') }}
     &middot; Last updated {{ ticket.updated_at.strftime('%d %b %Y at %H:%M') }}
     {% if ticket.resolved_at %} &middot; Resolved {{ ticket.resolved_at.strftime('%d %b %Y at %H:%M') }}{% endif %}
 </div>
+{% if not ticket.customer and (ticket.reporter_name or ticket.reporter_email) %}
+<div class="alert alert-warning py-2 mb-4">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    No customer assigned yet. This ticket was reported by
+    <strong>{{ ticket.reporter_name or 'Unknown' }}</strong>{% if ticket.reporter_email %} &lt;{{ ticket.reporter_email }}&gt;{% endif %}
+    - use the <strong>Customer</strong> panel on the right to assign it once you know who they are.
+</div>
+{% endif %}
 
 <div class="row g-4">
     <div class="col-md-8">
@@ -55,9 +63,28 @@
         </div>
 
         <div class="card stat-card p-3 mt-3">
+            <h6 class="page-title">Customer</h6>
+            {% if not ticket.customer %}
+            <p class="small text-muted mb-2">This ticket has no customer assigned yet.</p>
+            {% endif %}
+            <select class="form-select" id="ticketCustomerSelect" onchange="assignCustomer(this.value)">
+                <option value="">-- Unassigned --</option>
+                {% for c in customers %}
+                    <option value="{{ c.id }}" {% if ticket.customer_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="card stat-card p-3 mt-3">
             <h6 class="page-title">End User</h6>
-            <p class="small text-muted mb-2">The specific person at {{ ticket.customer.name }} this ticket is for.</p>
-            <select class="form-select" id="ticketContactSelect" onchange="updateTicket('contact_id', this.value)">
+            <p class="small text-muted mb-2">
+                {% if ticket.customer %}
+                    The specific person at {{ ticket.customer.name }} this ticket is for.
+                {% else %}
+                    Assign a customer above first to pick a specific contact.
+                {% endif %}
+            </p>
+            <select class="form-select" id="ticketContactSelect" onchange="updateTicket('contact_id', this.value)" {% if not ticket.customer %}disabled{% endif %}>
                 <option value="">Loading contacts...</option>
             </select>
         </div>
@@ -115,9 +142,6 @@ async function draftAiReply() {
 
 function copyAiDraftToReplyBox() {
     const draftText = document.getElementById('aiDraftText').value;
-    // Reuses the existing reply textarea already on this page (the
-    // "Add a reply or internal note..." box in the Activity card) -
-    // the technician still has to review/edit and click Post themselves.
     const replyBox = document.querySelector('textarea[name="message"]');
     if (replyBox) {
         replyBox.value = draftText;
@@ -173,6 +197,20 @@ async function updateTicket(field, value) {
     const resp = await fetch('/api/tickets/{{ ticket.id }}', {method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)});
     if (!resp.ok) alert('Update failed');
 }
+
+async function assignCustomer(customerId) {
+    // Reloads the page after a successful customer change, since the End
+    // User (contact) dropdown depends on which customer is now assigned.
+    const resp = await fetch('/api/tickets/{{ ticket.id }}', {
+        method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({customer_id: customerId})
+    });
+    if (resp.ok) {
+        window.location.reload();
+    } else {
+        alert('Failed to update customer: ' + await resp.text());
+    }
+}
+
 async function addComment(e) {
     e.preventDefault();
     const form = e.target;
@@ -211,15 +249,22 @@ async function logTime(e) {
     return false;
 }
 
-// Populate the End User dropdown with this customer's contacts, then
-// pre-select whichever contact (if any) is currently assigned to the
-// ticket. Reuses the generic updateTicket() function above on change -
-// works because contact_id is now a valid field on TicketUpdate.
+// Populate the End User dropdown with the assigned customer's contacts
+// (only if a customer is actually assigned), then pre-select whichever
+// contact (if any) is currently on the ticket. Reuses the generic
+// updateTicket() function above on change.
 (async function loadTicketContacts() {
     const select = document.getElementById('ticketContactSelect');
+    const customerId = "{{ ticket.customer_id or '' }}";
     const currentContactId = "{{ ticket.contact_id or '' }}";
+
+    if (!customerId) {
+        select.innerHTML = '<option value="">-- Assign a customer first --</option>';
+        return;
+    }
+
     try {
-        const resp = await fetch('/api/customers/{{ ticket.customer_id }}/contacts');
+        const resp = await fetch(`/api/customers/${customerId}/contacts`);
         if (!resp.ok) {
             select.innerHTML = '<option value="">-- Could not load contacts --</option>';
             return;

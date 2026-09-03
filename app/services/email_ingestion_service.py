@@ -8,9 +8,22 @@ inbound emails into helpdesk tickets automatically. Handles:
     details (so a ticket is correctly attributed to the customer who
     actually emailed, not the staff member who forwarded it)
   - Matching against simple keyword-triggered auto-reply rules
-  - Sending a confirmation email with the ticket reference number
   - De-duplicating so re-polling never creates a second ticket for the
     same email
+  - Creating a ticket even when no customer can be matched - customer_id
+    is simply left null and the original sender's name/email are
+    preserved on reporter_name/reporter_email, so a technician can
+    review and manually assign the right customer afterwards, rather
+    than the email being silently dropped.
+
+OUTBOUND EMAIL IS DISABLED BY DEFAULT: neither the keyword-triggered
+auto-reply nor the "we've logged your ticket" confirmation email is sent
+unless settings.HELPDESK_AUTO_REPLIES_ENABLED is explicitly set to true.
+This lets ticket ingestion (matching, forwarded-email parsing, exclusion
+list, ticket creation) run safely against a real mailbox with ZERO risk
+of an unintended email reaching a real customer. Flip
+HELPDESK_AUTO_REPLIES_ENABLED on only once you've reviewed a batch of
+auto-created tickets and are confident in the setup.
 
 Requires its own dedicated Entra ID app registration (kept separate from
 the per-customer Graph app used for license/contact sync, since this one
@@ -173,15 +186,16 @@ def find_matching_auto_reply(subject: str, body: str, db: Session):
     """
     Returns the first ACTIVE AutoReplyRule that matches, or None.
 
+    Note: matching still runs unconditionally so the result can be
+    reported (auto_reply_would_send) even while outbound email is
+    disabled - it is only ever ACTED on (i.e. an email actually sent)
+    when settings.HELPDESK_AUTO_REPLIES_ENABLED is true, see
+    process_single_email() below.
+
     Each rule's trigger_keywords is a comma-separated list of keyword
     PHRASES (e.g. "password reset,forgot password"). A phrase matches if
     ALL of its individual words appear SOMEWHERE in the subject+body text
-    - in any order, not necessarily adjacent. This means "forgot password"
-    correctly matches a real email saying "I forgot my password", since
-    both words are present, even though a strict substring match would
-    miss it. This is intentionally simple, literal word-matching (no
-    AI/NLU) so behaviour stays predictable and easy to reason about when
-    configuring rules.
+    - in any order, not necessarily adjacent.
     """
     haystack_words = set(re.findall(r"[a-z0-9']+", f"{subject or ''} {body or ''}".lower()))
     rules = db.query(AutoReplyRule).filter_by(active=True).all()
@@ -198,6 +212,12 @@ def find_matching_auto_reply(subject: str, body: str, db: Session):
 # Customer matching
 # ---------------------------------------------------------------------------
 def _find_customer_and_contact(db: Session, email_address: str):
+    """
+    Returns (customer, contact) - either or both may be None if no match
+    is found. A ticket is ALWAYS still created in that case (see
+    process_single_email below) - it's simply left unassigned
+    (customer_id/contact_id null) rather than dropped.
+    """
     if not email_address:
         return None, None
     contact = db.query(Contact).filter(Contact.email.ilike(email_address)).first()
@@ -209,7 +229,7 @@ def _find_customer_and_contact(db: Session, email_address: str):
 
 
 # ---------------------------------------------------------------------------
-# Sending mail
+# Sending mail (gated behind settings.HELPDESK_AUTO_REPLIES_ENABLED)
 # ---------------------------------------------------------------------------
 async def _send_helpdesk_email(token: str, to_address: str, subject: str, body: str):
     async with httpx.AsyncClient() as client:
@@ -244,9 +264,10 @@ async def _mark_email_read(token: str, message_id: str):
 async def process_single_email(db: Session, token: str, message: dict) -> dict:
     """
     Processes one Graph message dict end-to-end: dedup check, exclusion
-    check, forward parsing, ticket creation, auto-reply, confirmation
-    email, and marking the source email as read. Returns a summary dict
-    describing what happened (useful for logging/testing).
+    check, forward parsing, ticket creation (with or without a matched
+    customer), auto-reply/confirmation email (ONLY if explicitly
+    enabled), and marking the source email as read. Returns a summary
+    dict describing what happened (useful for logging/testing).
     """
     graph_message_id = message["id"]
 
@@ -270,73 +291,93 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
         await _mark_email_read(token, graph_message_id)
         return {"action": "excluded", "sender": from_email}
 
-    # Determine the "real" sender + subject/body, unwrapping a forward if present
+    # Determine the "real" sender + subject/body, unwrapping a forward if
+    # present - this is what lets a ticket be correctly attributed to the
+    # CUSTOMER who originally emailed, even when a staff member forwards
+    # it into the helpdesk mailbox on their behalf.
     forward_info = parse_forwarded_email(subject, body_content, body_content_type)
     if forward_info and forward_info["original_email"]:
         effective_email = forward_info["original_email"]
         effective_name = forward_info["original_name"] or effective_email
         effective_subject = forward_info["original_subject"]
         effective_body = forward_info["original_body"]
+        was_forward = True
     elif forward_info:
         # "Fwd:" subject but no parseable header - keep the forwarder as sender
         effective_email = from_email
         effective_name = from_name
         effective_subject = forward_info["original_subject"]
         effective_body = forward_info["original_body"]
+        was_forward = True
     else:
         effective_email = from_email
         effective_name = from_name
         effective_subject = subject
         effective_body = _strip_html(body_content) if body_content_type == "html" else body_content
+        was_forward = False
 
     customer, contact = _find_customer_and_contact(db, effective_email)
 
-    ticket = None
-    if customer:
-        ticket = Ticket(
-            ticket_number=next_ticket_number(db),
-            customer_id=customer.id,
-            contact_id=contact.id if contact else None,
-            subject=effective_subject[:255] or "(no subject)",
-            description=f"From: {effective_name} <{effective_email}>\n\n{effective_body}",
-            priority=TicketPriority.NORMAL,
-            source=TicketSource.EMAIL,
-            external_ref=graph_message_id,
-        )
-        db.add(ticket)
-        db.flush()
+    # ALWAYS create a ticket, even when no customer could be matched.
+    # customer_id/contact_id are simply left null in that case, and the
+    # original reporter's name/email are preserved on the ticket itself
+    # so a technician can review and manually assign the right customer
+    # later via the ticket detail page.
+    ticket = Ticket(
+        ticket_number=next_ticket_number(db),
+        customer_id=customer.id if customer else None,
+        contact_id=contact.id if contact else None,
+        reporter_name=effective_name or None,
+        reporter_email=effective_email or None,
+        subject=effective_subject[:255] or "(no subject)",
+        description=f"From: {effective_name} <{effective_email}>\n\n{effective_body}",
+        priority=TicketPriority.NORMAL,
+        source=TicketSource.EMAIL,
+        external_ref=graph_message_id,
+    )
+    db.add(ticket)
+    db.flush()
 
     auto_reply_rule = find_matching_auto_reply(effective_subject, effective_body, db)
+    auto_reply_would_send = bool(auto_reply_rule)
+    auto_reply_actually_sent = False
 
     processed = ProcessedEmail(
         graph_message_id=graph_message_id, sender_email=effective_email, subject=effective_subject,
-        ticket_id=ticket.id if ticket else None, was_excluded=False,
-        auto_reply_sent=bool(auto_reply_rule),
+        ticket_id=ticket.id, was_excluded=False,
+        auto_reply_sent=False,  # updated below only if actually sent
     )
     db.add(processed)
     db.commit()
 
-    # Send auto-reply (if matched) and/or a confirmation email
-    if effective_email:
+    # Outbound email is DISABLED BY DEFAULT (see module docstring) - only
+    # send anything if explicitly enabled via settings.
+    if settings.HELPDESK_AUTO_REPLIES_ENABLED and effective_email:
         if auto_reply_rule:
             await _send_helpdesk_email(token, effective_email, auto_reply_rule.reply_subject, auto_reply_rule.reply_body)
-        if ticket:
-            confirmation_body = (
-                f"Thanks for contacting Letsma support.\n\n"
-                f"We've logged your request as ticket #{ticket.ticket_number}: {ticket.subject}\n\n"
-                f"A technician will be in touch shortly. Please quote ticket #{ticket.ticket_number} "
-                f"in any further correspondence about this issue."
-            )
-            await _send_helpdesk_email(token, effective_email, f"Re: {effective_subject} [Ticket #{ticket.ticket_number}]", confirmation_body)
+            auto_reply_actually_sent = True
+
+        confirmation_body = (
+            f"Thanks for contacting Letsma support.\n\n"
+            f"We've logged your request as ticket #{ticket.ticket_number}: {ticket.subject}\n\n"
+            f"A technician will be in touch shortly. Please quote ticket #{ticket.ticket_number} "
+            f"in any further correspondence about this issue."
+        )
+        await _send_helpdesk_email(token, effective_email, f"Re: {effective_subject} [Ticket #{ticket.ticket_number}]", confirmation_body)
+
+        processed.auto_reply_sent = auto_reply_actually_sent
+        db.commit()
 
     await _mark_email_read(token, graph_message_id)
 
     return {
-        "action": "ticket_created" if ticket else "no_customer_match",
+        "action": "ticket_created" if customer else "ticket_created_unassigned",
         "sender": effective_email,
-        "ticket_number": ticket.ticket_number if ticket else None,
-        "auto_reply_sent": bool(auto_reply_rule),
-        "was_forward": bool(forward_info),
+        "ticket_number": ticket.ticket_number,
+        "customer_matched": bool(customer),
+        "auto_reply_would_send": auto_reply_would_send,
+        "auto_reply_actually_sent": auto_reply_actually_sent,
+        "was_forward": was_forward,
     }
 
 

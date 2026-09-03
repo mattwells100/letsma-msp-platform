@@ -79,43 +79,30 @@ class Settings:
     AGENT_OFFLINE_THRESHOLD_MINUTES: int = int(os.getenv("AGENT_OFFLINE_THRESHOLD_MINUTES", "15"))
 
     # Email-to-ticket (helpdesk@letsma.co.uk polling) - separate app
-    # registration living in Letsma's OWN tenant, restricted via an
-    # Exchange Application Access Policy to just the helpdesk mailbox.
-    # Deliberately left unconfigured in production for now (see
-    # HELPDESK_GRAPH_CLIENT_ID check in scheduler.py) until confident it
-    # won't send unintended emails to real customers.
+    # registration living in Letsma's OWN tenant.
     HELPDESK_GRAPH_TENANT_ID: str = os.getenv("HELPDESK_GRAPH_TENANT_ID", "")
     HELPDESK_GRAPH_CLIENT_ID: str = os.getenv("HELPDESK_GRAPH_CLIENT_ID", "")
     HELPDESK_GRAPH_CLIENT_SECRET: str = os.getenv("HELPDESK_GRAPH_CLIENT_SECRET", "")
     HELPDESK_MAILBOX_ADDRESS: str = os.getenv("HELPDESK_MAILBOX_ADDRESS", "helpdesk@letsma.co.uk")
 
+    # Whether the helpdesk email-to-ticket poller is allowed to send ANY
+    # outbound email at all (the keyword-triggered auto-reply rules AND
+    # the "we've logged your ticket" confirmation email). Defaults to
+    # false so ticket ingestion (matching, forwarded-email parsing,
+    # exclusion list, ticket creation) can run safely against a real
+    # mailbox with ZERO risk of an unintended email reaching a real
+    # customer. Only flip to "true" once you've reviewed a batch of
+    # auto-created tickets and are confident in the setup.
+    HELPDESK_AUTO_REPLIES_ENABLED: bool = os.getenv("HELPDESK_AUTO_REPLIES_ENABLED", "false").lower() == "true"
+
     # Purchasing email ingest (orders@letsma.co.uk polling) - uses its OWN
     # dedicated credentials and its OWN explicit enable flag, kept fully
-    # independent of HELPDESK_GRAPH_* above.
-    #
-    # IMPORTANT: this is deliberately NOT wired to reuse HELPDESK_GRAPH_*,
-    # even though both mailboxes live in the same Letsma tenant. Reusing
-    # those credentials would mean populating them (just to turn on
-    # purchasing ingest) would ALSO silently turn on the helpdesk
-    # email-to-ticket poller - which sends real auto-reply/confirmation
-    # emails to customers. Since that feature is deliberately being held
-    # back, purchasing ingest gets fully separate credentials and its own
-    # on/off switch so the two can never accidentally activate each other.
-    #
-    # You CAN safely point ORDERS_GRAPH_* at the SAME Entra app
-    # registration as HELPDESK_GRAPH_* if you'd rather not create a
-    # second one - just copy the same tenant/client id/secret values into
-    # these new names. That's safe because it's
-    # ORDERS_EMAIL_INGEST_ENABLED that gates this feature, not whether
-    # the credential fields happen to be populated.
+    # independent of HELPDESK_GRAPH_* above (see long comment history for
+    # why - populating one must never silently activate the other).
     ORDERS_MAILBOX_ADDRESS: str = os.getenv("ORDERS_MAILBOX_ADDRESS", "orders@letsma.co.uk")
     ORDERS_GRAPH_TENANT_ID: str = os.getenv("ORDERS_GRAPH_TENANT_ID", "")
     ORDERS_GRAPH_CLIENT_ID: str = os.getenv("ORDERS_GRAPH_CLIENT_ID", "")
     ORDERS_GRAPH_CLIENT_SECRET: str = os.getenv("ORDERS_GRAPH_CLIENT_SECRET", "")
-    # Explicit master switch for the scheduled orders-mailbox poll job.
-    # Defaults to OFF - deliberately set to "true" only once you're
-    # confident it's working correctly (e.g. after testing via the
-    # manual /api/purchasing/email-ingestion/poll endpoint).
     ORDERS_EMAIL_INGEST_ENABLED: bool = os.getenv("ORDERS_EMAIL_INGEST_ENABLED", "false").lower() == "true"
 
     # AI-drafted ticket replies (Azure OpenAI)

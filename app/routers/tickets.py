@@ -16,27 +16,35 @@ SLA_HOURS = {"Critical": 2, "High": 4, "Normal": 8, "Low": 24}
 
 
 @router.get("/", response_model=List[schemas.TicketOut])
-def list_tickets(status: Optional[str] = None, customer_id: Optional[str] = None, db: Session = Depends(get_db)):
+def list_tickets(
+    status: Optional[str] = None,
+    customer_id: Optional[str] = None,
+    unassigned_only: bool = False,
+    db: Session = Depends(get_db),
+):
     q = db.query(models.Ticket)
     if status:
         q = q.filter(models.Ticket.status == status)
     if customer_id:
         q = q.filter(models.Ticket.customer_id == customer_id)
+    if unassigned_only:
+        q = q.filter(models.Ticket.customer_id.is_(None))
     return q.order_by(models.Ticket.created_at.desc()).all()
 
 
 @router.post("/", response_model=schemas.TicketOut)
 def create_ticket(payload: schemas.TicketCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    customer = db.query(models.Customer).get(payload.customer_id)
-    if not customer:
-        raise HTTPException(404, "Customer not found")
+    if payload.customer_id:
+        customer = db.query(models.Customer).get(payload.customer_id)
+        if not customer:
+            raise HTTPException(404, "Customer not found")
 
     data = payload.model_dump()
     priority = data.get("priority") or "Normal"
 
     ticket = models.Ticket(
         ticket_number=next_ticket_number(db),
-        customer_id=data["customer_id"],
+        customer_id=data.get("customer_id"),  # may be None - tickets can exist unassigned (e.g. auto-ingested emails)
         contact_id=data.get("contact_id"),
         subject=data["subject"],
         description=data.get("description"),
@@ -80,6 +88,18 @@ def update_ticket(ticket_id: str, payload: schemas.TicketUpdate, background_task
         raise HTTPException(404, "Ticket not found")
 
     updates = payload.model_dump(exclude_unset=True)
+
+    # Validate customer_id if being changed - "" or null unassigns.
+    if "customer_id" in updates:
+        new_customer_id = updates["customer_id"]
+        if new_customer_id:
+            customer = db.query(models.Customer).get(new_customer_id)
+            if not customer:
+                raise HTTPException(404, "Customer not found")
+            updates["customer_id"] = new_customer_id
+        else:
+            updates["customer_id"] = None
+
     for k, v in updates.items():
         setattr(ticket, k, v)
 
