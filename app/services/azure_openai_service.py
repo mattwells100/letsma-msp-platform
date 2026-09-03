@@ -158,17 +158,26 @@ You will be given the text of a supplier order confirmation or shipment notifica
       "description": string,
       "sku": string or null,
       "quantity": number,
-      "unit_cost": number,
-      "line_total": number
+      "unit_cost": number,            // EXCLUDING VAT - the pre-tax unit price as itemized on the invoice
+      "line_total": number            // EXCLUDING VAT - quantity * unit_cost
     }
   ],
-  "subtotal_ex_vat": number or null,
-  "vat": number or null,
-  "total_inc_vat": number or null,
+  "subtotal_ex_vat": number or null,  // EXCLUDING VAT - the order subtotal before tax. This is the AUTHORITATIVE total
+                                       // for the order. If the email states only an inc-VAT total plus a separate VAT
+                                       // amount, COMPUTE this yourself as total_inc_vat - vat rather than leaving it null.
+  "vat": number or null,              // the VAT/tax amount, if stated separately
+  "total_inc_vat": number or null,    // the final total INCLUDING VAT, if stated - for cross-reference only, never
+                                       // used as the stored cost price
   "confidence": number                // your own confidence in this extraction, 0.0 to 1.0
 }
 
-Rules you must follow:
+CRITICAL RULE ON VAT: every price field except total_inc_vat and vat themselves (i.e. unit_cost, line_total, and
+subtotal_ex_vat) MUST be EXCLUDING VAT. Most UK/EU supplier invoices already itemize unit prices excluding VAT with
+a single VAT line added at the bottom - in that common case, just extract the unit prices as printed. If an email
+only shows inc-VAT prices per item with no way to derive the ex-VAT figure, still populate the field with your best
+estimate and note this in a lower confidence score, rather than leaving the whole extraction incomplete.
+
+Other rules you must follow:
 - If a field is not present in the source text, use null (or [] for line_items) rather than guessing.
 - Never invent an order number, price, or company name that is not present in the text.
 - Output ONLY the JSON object - no preamble, no explanation, no markdown code fences.

@@ -2,8 +2,11 @@
 app/routers/purchasing_email_ingestion.py
 
 Endpoints to manually trigger a purchasing-mailbox poll (orders@letsma.co.uk)
-and to confirm a needs_review AmazonOrder draft into your normal billable
+and to confirm a needs_review purchase draft into the normal billable
 Unbilled Purchases pipeline. Mirrors app/routers/email_ingestion.py.
+
+VAT convention: identical to app/routers/purchases.py - every price field
+here (total, unit_price) is ALWAYS excluding VAT.
 """
 from typing import Optional
 
@@ -40,37 +43,44 @@ def list_needs_review(db: Session = Depends(get_db)):
         .order_by(models.AmazonOrder.ingested_at.asc())
         .all()
     )
-    return [
-        {
+    result = []
+    for r in rows:
+        primary = r.line_items[0] if r.line_items else None
+        result.append({
             "id": r.id,
             "supplier": r.supplier,
             "order_reference": r.amazon_order_id,
             "customer_id": r.customer_id,
             "end_user_hint": r.end_user_hint,
-            "total": r.total,
+            "description": r.description,
+            "quantity": primary.quantity if primary else 1.0,
+            "unit_price": primary.unit_price if primary else r.total,  # excluding VAT
+            "other_line_items_count": max(len(r.line_items) - 1, 0),
+            "total": r.total,  # excluding VAT
             "currency": r.currency,
             "extraction_status": r.extraction_status,
             "ingested_at": r.ingested_at.isoformat() if r.ingested_at else None,
-        }
-        for r in rows
-    ]
+        })
+    return result
 
 
 class ConfirmOrderRequest(BaseModel):
     customer_id: Optional[str] = None
-    total_override: Optional[float] = None
+    description: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None  # cost price PER UNIT, EXCLUDING VAT
+    total_override: Optional[float] = None  # deprecated - prefer quantity + unit_price; still supported for direct override
 
 
 @router.post("/{order_id}/confirm")
 def confirm_order(order_id: str, payload: ConfirmOrderRequest, db: Session = Depends(get_db)):
     """
-    Human confirms a needs_review email-ingested order. This doesn't
-    change `invoiced` (it's already False, same as any other unbilled
-    purchase) - it just flips extraction_status to "confirmed" and
-    requires a customer to be assigned, so the order becomes visible/
-    trustworthy in your existing Unbilled Purchases view and can be
-    added to that customer's next invoice through your normal billing
-    flow.
+    Human confirms a needs_review email-ingested order, optionally
+    correcting the customer, description, quantity, or unit price (always
+    excluding VAT) in the same action the AI extraction may have gotten
+    wrong. Only edits the PRIMARY (first) line item - additional line
+    items from a multi-item extraction (e.g. a delivery charge) are left
+    untouched and their total is preserved in order.total.
     """
     order = db.query(models.AmazonOrder).filter(models.AmazonOrder.id == order_id).first()
     if not order:
@@ -78,8 +88,32 @@ def confirm_order(order_id: str, payload: ConfirmOrderRequest, db: Session = Dep
 
     if payload.customer_id:
         order.customer_id = payload.customer_id
-    if payload.total_override is not None:
-        order.total = payload.total_override
+    if payload.description is not None:
+        order.description = payload.description
+
+    if payload.quantity is not None or payload.unit_price is not None:
+        line_items = list(order.line_items)
+        primary = line_items[0] if line_items else None
+        other_items_total = sum(li.quantity * li.unit_price for li in line_items[1:]) if len(line_items) > 1 else 0.0
+
+        new_quantity = payload.quantity if payload.quantity is not None else (primary.quantity if primary else 1.0)
+        new_unit_price = payload.unit_price if payload.unit_price is not None else (primary.unit_price if primary else order.total)
+
+        if primary:
+            primary.quantity = new_quantity
+            primary.unit_price = new_unit_price
+            if payload.description is not None:
+                primary.description = payload.description
+        else:
+            db.add(models.AmazonOrderLineItem(
+                order_id=order.id,
+                description=payload.description or order.description or "Item",
+                quantity=new_quantity, unit_price=new_unit_price,
+            ))
+
+        order.total = round(other_items_total + (new_quantity * new_unit_price), 2)  # excluding VAT
+    elif payload.total_override is not None:
+        order.total = payload.total_override  # excluding VAT
 
     if not order.customer_id:
         raise HTTPException(
@@ -89,4 +123,4 @@ def confirm_order(order_id: str, payload: ConfirmOrderRequest, db: Session = Dep
 
     order.extraction_status = "confirmed"
     db.commit()
-    return {"status": "confirmed", "order_id": order.id}
+    return {"status": "confirmed", "order_id": order.id, "total": order.total}
