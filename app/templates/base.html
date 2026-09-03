@@ -15,30 +15,30 @@
             <span class="brand-mark">LETSMA</span>
             <div class="brand-sub">MSP Platform</div>
         </div>
-        <ul class="nav nav-pills flex-column mb-auto">
+                <ul class="nav nav-pills flex-column mb-auto">
             <li class="nav-item">
-                /dashboard' %}active{% endif %}"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a>
+                <a href="/dashboard" class="nav-link {% if active_page=='dashboard' %}active{% endif %}"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a>
             </li>
             <li>
-                /customers<i class="bi bi-people me-2"></i>Customers</a>
+                <a href="/customers" class="nav-link {% if active_page=='customers' %}active{% endif %}"><i class="bi bi-people me-2"></i>Customers</a>
             </li>
             <li>
-                /tickets<i class="bi bi-life-preserver me-2"></i>Helpdesk</a>
+                <a href="/tickets" class="nav-link {% if active_page=='tickets' %}active{% endif %}"><i class="bi bi-life-preserver me-2"></i>Helpdesk</a>
             </li>
             <li>
-                /billing
+                <a href="/billing" class="nav-link {% if active_page=='billing' %}active{% endif %}"><i class="bi bi-receipt me-2"></i>Billing</a>
             </li>
             <li>
-                purchases" class="nav-link {% if active_page=='purchases' %}active{% endif %}"><i class="bi bi-box-seam me-2"></i>Purchasing</a>
+                <a href="/purchases" class="nav-link {% if active_page=='purchases' %}active{% endif %}"><i class="bi bi-box-seam me-2"></i>Purchasing</a>
             </li>
             <li>
-                /licensespage=='licenses' %}active{% endif %}"><i class="bi bi-microsoft me-2"></i>O365 Licenses</a>
+                <a href="/licenses" class="nav-link {% if active_page=='licenses' %}active{% endif %}"><i class="bi bi-microsoft me-2"></i>O365 Licenses</a>
             </li>
             <li>
-                /billing-settingsif %}"><i class="bi bi-gear me-2"></i>Billing Settings</a>
+                <a href="/billing-settings" class="nav-link {% if active_page=='billing-settings' %}active{% endif %}"><i class="bi bi-gear me-2"></i>Billing Settings</a>
             </li>
             <li>
-                /endpoints<i class="bi bi-hdd-network me-2"></i>Endpoints</a>
+                <a href="/endpoints" class="nav-link {% if active_page=='endpoints' %}active{% endif %}"><i class="bi bi-hdd-network me-2"></i>Endpoints</a>
             </li>
         </ul>
         <hr>
