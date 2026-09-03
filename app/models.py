@@ -148,7 +148,7 @@ class Ticket(Base):
 
     id = Column(String, primary_key=True, default=gen_id)
     ticket_number = Column(Integer, unique=True, autoincrement=True)
-    customer_id = Column(String, ForeignKey("customers.id"), nullable=False)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=True)
     contact_id = Column(String, ForeignKey("contacts.id"), nullable=True)
     subject = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -157,6 +157,8 @@ class Ticket(Base):
     source = Column(Enum(TicketSource), default=TicketSource.PORTAL)
     assigned_to = Column(String, ForeignKey("technicians.id"), nullable=True)
     external_ref = Column(String, nullable=True)  # e.g. WhatsApp message id, Teams message id, email message id
+    reporter_name = Column(String, nullable=True)   # original sender's name, preserved even if no customer/contact matched
+    reporter_email = Column(String, nullable=True)  # original sender's email, preserved even if no customer/contact matched
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)

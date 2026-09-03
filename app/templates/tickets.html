@@ -3,9 +3,21 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="page-title mb-0">Helpdesk Tickets</h2>
-    <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newTicketModal">
-        <i class="bi bi-plus-lg"></i> New Ticket
-    </button>
+    <div class="d-flex gap-2 align-items-center">
+        {% if unassigned_only %}
+            <a href="/tickets" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-x-lg"></i> Show All Tickets
+            </a>
+        {% else %}
+            <a href="/tickets?unassigned_only=true" class="btn btn-sm btn-outline-warning">
+                <i class="bi bi-person-x"></i> Unassigned
+                {% if unassigned_count %}<span class="badge bg-warning text-dark ms-1">{{ unassigned_count }}</span>{% endif %}
+            </a>
+        {% endif %}
+        <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newTicketModal">
+            <i class="bi bi-plus-lg"></i> New Ticket
+        </button>
+    </div>
 </div>
 <div class="card stat-card p-3">
     <table class="table align-middle">
@@ -15,7 +27,14 @@
             <tr onclick="window.location='/tickets/{{ t.id }}'" style="cursor:pointer">
                 <td>{{ t.ticket_number }}</td>
                 <td>{{ t.subject }}</td>
-                <td>{{ t.customer.name }}</td>
+                <td>
+                    {% if t.customer %}
+                        {{ t.customer.name }}
+                    {% else %}
+                        <span class="badge bg-warning text-dark">Unassigned</span>
+                        {% if t.reporter_email %}<div class="small text-muted">{{ t.reporter_name or t.reporter_email }}</div>{% endif %}
+                    {% endif %}
+                </td>
                 <td class="small text-muted">{{ t.contact.name if t.contact else '-' }}</td>
                 <td>
                     {% set src = t.source.value if t.source.value is defined else t.source %}
@@ -28,7 +47,7 @@
                 <td class="small text-muted">{{ t.updated_at.strftime('%d %b %Y %H:%M') }}</td>
             </tr>
         {% else %}
-            <tr><td colspan="9" class="text-muted">No tickets yet.</td></tr>
+            <tr><td colspan="9" class="text-muted">{% if unassigned_only %}No unassigned tickets.{% else %}No tickets yet.{% endif %}</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -75,7 +94,6 @@ document.getElementById('newTicketModal').addEventListener('show.bs.modal', asyn
     select.innerHTML = '<option value="">-- Select a customer --</option>' +
         customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
 
-    // Reset the dependent End User dropdown each time the modal opens
     const contactSelect = document.getElementById('newTicketContactSelect');
     contactSelect.innerHTML = '<option value="">-- Select a customer first --</option>';
     contactSelect.disabled = true;

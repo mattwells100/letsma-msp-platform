@@ -88,35 +88,26 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
         "active_page": "customers",
     })
 
-@router.get("/purchases")
-def purchases_page(request: Request, db: Session = Depends(get_db)):
-    customers = db.query(models.Customer).order_by(models.Customer.name).all()
-
-    # Email-ingested drafts awaiting human confirmation before they become
-    # billable (extraction_status defaults to "confirmed" for manual/
-    # csv_import orders, so this filter only ever surfaces email_auto rows
-    # that still need a look). Oldest first, so nothing sits forgotten.
-    needs_review_orders = (
-        db.query(models.AmazonOrder)
-        .filter(models.AmazonOrder.extraction_status.in_(["needs_review", "failed"]))
-        .order_by(models.AmazonOrder.ingested_at.asc())
-        .all()
-    )
-
-    all_orders = db.query(models.AmazonOrder).order_by(models.AmazonOrder.order_date.desc()).all()
-
-    return templates.TemplateResponse("purchases.html", {
-        "request": request,
-        "customers": customers,
-        "needs_review_orders": needs_review_orders,
-        "all_orders": all_orders,
-        "active_page": "purchases",
-    })
 
 @router.get("/tickets")
-def tickets_page(request: Request, db: Session = Depends(get_db)):
-    tickets = db.query(models.Ticket).order_by(models.Ticket.created_at.desc()).all()
-    return templates.TemplateResponse("tickets.html", {"request": request, "tickets": tickets, "active_page": "tickets"})
+def tickets_page(request: Request, unassigned_only: bool = False, db: Session = Depends(get_db)):
+    """
+    unassigned_only=true filters the list down to tickets with no
+    customer match - e.g. emails auto-ingested from the helpdesk mailbox
+    where the sender's address couldn't be matched to any known
+    customer/contact. Lets a technician quickly triage these for manual
+    customer assignment. The count is always computed (regardless of the
+    current filter) so the toggle link can show how many are waiting.
+    """
+    query = db.query(models.Ticket)
+    if unassigned_only:
+        query = query.filter(models.Ticket.customer_id.is_(None))
+    tickets = query.order_by(models.Ticket.created_at.desc()).all()
+    unassigned_count = db.query(models.Ticket).filter(models.Ticket.customer_id.is_(None)).count()
+    return templates.TemplateResponse("tickets.html", {
+        "request": request, "tickets": tickets, "active_page": "tickets",
+        "unassigned_only": unassigned_only, "unassigned_count": unassigned_count,
+    })
 
 
 @router.get("/tickets/{ticket_id}")
@@ -130,8 +121,13 @@ def ticket_detail_page(ticket_id: str, request: Request, db: Session = Depends(g
         .order_by(models.TimeEntry.work_date.desc())
         .all()
     )
+    # Needed for the Customer assignment dropdown on the ticket detail
+    # page (lets a technician assign/reassign the customer, e.g. for a
+    # ticket auto-created from an unmatched helpdesk email).
+    customers = db.query(models.Customer).order_by(models.Customer.name).all()
     return templates.TemplateResponse("ticket_detail.html", {
         "request": request, "ticket": ticket, "time_entries": time_entries, "active_page": "tickets",
+        "customers": customers,
     })
 
 
