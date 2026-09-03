@@ -8,6 +8,13 @@ the exact same AmazonOrder table and billing logic already used for
 Amazon CSV imports (see app/services/amazon_import_service.py for the
 CSV-import path, which remains unchanged and unaffected by this module).
 
+Every order can have MULTIPLE line items (e.g. a laptop + a delivery
+charge, or several different products) - the full list is always
+returned/editable via GET/PATCH /{order_id}, not just a single "primary"
+item. See app/services/purchase_line_items.py for the shared
+replace-all-line-items logic used here and in the email-ingest confirm
+endpoint.
+
 IMPORTANT - VAT convention used throughout this module and the wider
 purchasing module (including email-auto-ingested orders - see
 purchase_email_ingestion_service.py): every price stored here
@@ -26,22 +33,30 @@ from pydantic import BaseModel
 
 from app.database import get_db
 from app import models
+from app.services.purchase_line_items import replace_line_items
 
 router = APIRouter(prefix="/api/purchases", tags=["Purchasing"])
 
 
-class PurchaseCreate(BaseModel):
-    supplier: str  # e.g. "CDW", "Ingram Micro", "Amazon", "Local Shop"
+class PurchaseLineItemInput(BaseModel):
     description: str
     quantity: float = 1.0
-    unit_price: float  # cost price PER UNIT, EXCLUDING VAT, as paid to the supplier
+    unit_price: float  # cost price PER UNIT, EXCLUDING VAT
+
+
+class PurchaseCreate(BaseModel):
+    supplier: str  # e.g. "CDW", "Ingram Micro", "Amazon", "Local Shop"
+    description: Optional[str] = None  # order-level label; defaults to the first line item's description if omitted
     order_reference: Optional[str] = None  # supplier's own order/invoice number, if any
     order_date: Optional[datetime] = None
     customer_id: Optional[str] = None  # can assign now, or leave unassigned and assign later
+    line_items: List[PurchaseLineItemInput]
 
 
 @router.post("/")
 def create_purchase(payload: PurchaseCreate, db: Session = Depends(get_db)):
+    if not payload.line_items:
+        raise HTTPException(400, "At least one line item is required")
     if payload.customer_id:
         customer = db.query(models.Customer).get(payload.customer_id)
         if not customer:
@@ -55,23 +70,20 @@ def create_purchase(payload: PurchaseCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(400, f"An order with reference '{order_ref}' already exists")
 
-    total_ex_vat = round(payload.quantity * payload.unit_price, 2)
-
     order = models.AmazonOrder(
         amazon_order_id=order_ref,
         customer_id=payload.customer_id,
         supplier=payload.supplier,
         order_date=payload.order_date or datetime.utcnow(),
-        total=total_ex_vat,  # excluding VAT - see module docstring
-        description=payload.description,
+        total=0.0,  # set below once line items are attached
+        description=payload.description or payload.line_items[0].description,
         source="manual",
     )
     db.add(order)
-    db.flush()
-    db.add(models.AmazonOrderLineItem(
-        order_id=order.id, description=payload.description,
-        quantity=payload.quantity, unit_price=payload.unit_price,
-    ))
+    db.flush()  # populate order.id before attaching line items
+
+    order.total = replace_line_items(db, order, [li.dict() for li in payload.line_items])
+
     db.commit()
     db.refresh(order)
 
@@ -89,26 +101,36 @@ def list_purchases(customer_id: Optional[str] = None, unassigned_only: bool = Fa
     if unassigned_only:
         query = query.filter_by(customer_id=None)
     orders = query.order_by(models.AmazonOrder.order_date.desc()).all()
-    return [
-        {
+
+    result = []
+    for o in orders:
+        items = o.line_items
+        # Only show a single quantity/unit_price figure when there's
+        # exactly one line item - for multi-line orders these are left
+        # null (the GUI shows an item count badge instead), since a
+        # single number can't meaningfully represent several different
+        # products/prices. Full breakdown is always available via
+        # GET /{order_id}.
+        single = items[0] if len(items) == 1 else None
+        result.append({
             "id": o.id, "order_reference": o.amazon_order_id, "supplier": o.supplier,
             "description": o.description, "total": o.total, "order_date": o.order_date,
             "customer_id": o.customer_id, "invoiced": o.invoiced, "source": o.source,
-        }
-        for o in orders
-    ]
+            "currency": o.currency,
+            "line_item_count": len(items),
+            "quantity": single.quantity if single else None,
+            "unit_price": single.unit_price if single else None,  # excluding VAT
+        })
+    return result
 
 
 @router.get("/{order_id}")
 def get_purchase(order_id: str, db: Session = Depends(get_db)):
-    """Full detail for a single purchase, including its line items - used
-    to pre-fill the Edit modal in the GUI."""
+    """Full detail for a single purchase, including EVERY line item - used
+    to pre-fill the Edit/Review modal in the GUI."""
     order = db.query(models.AmazonOrder).get(order_id)
     if not order:
         raise HTTPException(404, "Purchase order not found")
-
-    primary = order.line_items[0] if order.line_items else None
-    other_items_total = sum(li.quantity * li.unit_price for li in order.line_items[1:]) if len(order.line_items) > 1 else 0.0
 
     return {
         "id": order.id,
@@ -121,10 +143,14 @@ def get_purchase(order_id: str, db: Session = Depends(get_db)):
         "invoiced": order.invoiced,
         "source": order.source,
         "order_date": order.order_date,
-        "quantity": primary.quantity if primary else 1.0,
-        "unit_price": primary.unit_price if primary else order.total,  # excluding VAT, per unit
-        "other_line_items_count": max(len(order.line_items) - 1, 0),
-        "other_line_items_total": round(other_items_total, 2),
+        "line_items": [
+            {
+                "id": li.id, "description": li.description, "quantity": li.quantity,
+                "unit_price": li.unit_price,  # excluding VAT
+                "line_total": round(li.quantity * li.unit_price, 2),
+            }
+            for li in order.line_items
+        ],
     }
 
 
@@ -132,23 +158,23 @@ class PurchaseUpdate(BaseModel):
     customer_id: Optional[str] = None  # "" (empty string) explicitly unassigns; omit field entirely to leave unchanged
     supplier: Optional[str] = None
     description: Optional[str] = None
-    quantity: Optional[float] = None
-    unit_price: Optional[float] = None  # cost price PER UNIT, EXCLUDING VAT
+    line_items: Optional[List[PurchaseLineItemInput]] = None  # if provided, REPLACES ALL line items - must include every line, not just the ones changed
 
 
 @router.patch("/{order_id}")
 def update_purchase(order_id: str, payload: PurchaseUpdate, db: Session = Depends(get_db)):
     """
     General-purpose edit: correct the assigned customer, supplier,
-    description, quantity, or unit price (always excluding VAT) on an
-    existing purchase. Refuses to edit anything already invoiced, since
-    that would silently change a figure the customer has already been
-    billed for.
+    order-level description, or the full set of line items (descriptions,
+    quantities, unit prices - always excluding VAT) on an existing
+    purchase. Refuses to edit anything already invoiced, since that would
+    silently change a figure the customer has already been billed for.
 
-    Only the PRIMARY (first) line item's quantity/unit_price is edited
-    here - if an order has additional line items (e.g. an email-ingested
-    multi-item order with a delivery charge as a second item), those are
-    left untouched and their total is preserved in order.total.
+    When `line_items` is provided, it must contain the COMPLETE set of
+    lines for the order (the GUI always fetches the current full list via
+    GET first, then submits it back with edits applied) - this replaces
+    every existing line item, so a partial list would delete lines that
+    weren't meant to be removed.
     """
     order = db.query(models.AmazonOrder).get(order_id)
     if not order:
@@ -171,27 +197,11 @@ def update_purchase(order_id: str, payload: PurchaseUpdate, db: Session = Depend
     if payload.description is not None:
         order.description = payload.description
 
-    if payload.quantity is not None or payload.unit_price is not None:
-        line_items = list(order.line_items)
-        primary = line_items[0] if line_items else None
-        other_items_total = sum(li.quantity * li.unit_price for li in line_items[1:]) if len(line_items) > 1 else 0.0
-
-        new_quantity = payload.quantity if payload.quantity is not None else (primary.quantity if primary else 1.0)
-        new_unit_price = payload.unit_price if payload.unit_price is not None else (primary.unit_price if primary else order.total)
-
-        if primary:
-            primary.quantity = new_quantity
-            primary.unit_price = new_unit_price
-            if payload.description is not None:
-                primary.description = payload.description
-        else:
-            db.add(models.AmazonOrderLineItem(
-                order_id=order.id,
-                description=payload.description or order.description or "Item",
-                quantity=new_quantity, unit_price=new_unit_price,
-            ))
-
-        order.total = round(other_items_total + (new_quantity * new_unit_price), 2)  # excluding VAT
+    if payload.line_items is not None:
+        try:
+            order.total = replace_line_items(db, order, [li.dict() for li in payload.line_items])
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     db.commit()
     db.refresh(order)
@@ -204,8 +214,8 @@ def update_purchase(order_id: str, payload: PurchaseUpdate, db: Session = Depend
 @router.post("/{order_id}/assign")
 def assign_purchase_to_customer(order_id: str, customer_id: str, db: Session = Depends(get_db)):
     """Kept for backward compatibility - prefer PATCH /{order_id} going
-    forward, which can also correct description/quantity/price at the
-    same time as reassigning the customer."""
+    forward, which can also correct line items at the same time as
+    reassigning the customer."""
     order = db.query(models.AmazonOrder).get(order_id)
     if not order:
         raise HTTPException(404, "Purchase order not found")
