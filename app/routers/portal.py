@@ -8,6 +8,15 @@ Server-rendered portal views (Jinja2 + Bootstrap) covering:
 This keeps the MVP dependency-light (no separate frontend build step).
 For a production-grade UI, swap this for a React/Next.js SPA consuming the
 same /api/* endpoints.
+
+STAFF LOGIN (Microsoft Entra ID SSO - see app/routers/auth.py): every
+STAFF-facing page route below individually depends on require_login_page,
+which redirects to /auth/login if no one is signed in. This is applied
+per-route rather than once for the whole router, because this file ALSO
+contains customer_portal() (the external customer-facing
+/portal/{customer_id} route), which must stay reachable WITHOUT a Letsma
+staff login - customers don't have Letsma Azure accounts. Do not add
+require_login_page to customer_portal().
 """
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.templating import Jinja2Templates
@@ -16,18 +25,19 @@ from sqlalchemy import func
 
 from app.database import get_db
 from app import models
+from app.deps import require_login_page
 
 router = APIRouter(tags=["Portal"])
 templates = Jinja2Templates(directory="app/templates")
 
 
 @router.get("/")
-def root(request: Request, db: Session = Depends(get_db)):
+def root(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     return dashboard(request, db)
 
 
 @router.get("/dashboard")
-def dashboard(request: Request, db: Session = Depends(get_db)):
+def dashboard(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     stats = {
         "customers": db.query(models.Customer).count(),
         "open_tickets": db.query(models.Ticket).filter(
@@ -50,7 +60,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/customers")
-def customers_page(request: Request, db: Session = Depends(get_db)):
+def customers_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     return templates.TemplateResponse("customers.html", {"request": request, "customers": customers, "active_page": "customers"})
 
@@ -73,7 +83,7 @@ def _contact_sort_key(contact):
 
 
 @router.get("/customers/{customer_id}")
-def customer_detail_page(customer_id: str, request: Request, db: Session = Depends(get_db)):
+def customer_detail_page(customer_id: str, request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     customer = db.query(models.Customer).get(customer_id)
     if not customer:
         raise HTTPException(404, "Customer not found")
@@ -90,7 +100,7 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
 
 
 @router.get("/purchases")
-def purchases_page(request: Request, db: Session = Depends(get_db)):
+def purchases_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
 
     needs_review_orders = (
@@ -110,8 +120,9 @@ def purchases_page(request: Request, db: Session = Depends(get_db)):
         "active_page": "purchases",
     })
 
+
 @router.get("/tickets")
-def tickets_page(request: Request, unassigned_only: bool = False, db: Session = Depends(get_db)):
+def tickets_page(request: Request, unassigned_only: bool = False, db: Session = Depends(get_db), _=Depends(require_login_page)):
     """
     unassigned_only=true filters the list down to tickets with no
     customer match - e.g. emails auto-ingested from the helpdesk mailbox
@@ -132,7 +143,7 @@ def tickets_page(request: Request, unassigned_only: bool = False, db: Session = 
 
 
 @router.get("/tickets/{ticket_id}")
-def ticket_detail_page(ticket_id: str, request: Request, db: Session = Depends(get_db)):
+def ticket_detail_page(ticket_id: str, request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     ticket = db.query(models.Ticket).get(ticket_id)
     if not ticket:
         raise HTTPException(404, "Ticket not found")
@@ -153,14 +164,14 @@ def ticket_detail_page(ticket_id: str, request: Request, db: Session = Depends(g
 
 
 @router.get("/billing")
-def billing_page(request: Request, db: Session = Depends(get_db)):
+def billing_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     invoices = db.query(models.Invoice).order_by(models.Invoice.created_at.desc()).all()
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     return templates.TemplateResponse("billing.html", {"request": request, "invoices": invoices, "customers": customers, "active_page": "billing"})
 
 
 @router.get("/billing-settings")
-def billing_settings_page(request: Request, db: Session = Depends(get_db)):
+def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     license_prices = db.query(models.LicensePrice).all()
 
@@ -180,7 +191,7 @@ def billing_settings_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/licenses")
-def licenses_page(request: Request, db: Session = Depends(get_db)):
+def licenses_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     summary_rows = db.query(models.TenantLicenseSummary).all()
     totals = {}
@@ -192,7 +203,7 @@ def licenses_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/endpoints")
-def endpoints_page(request: Request, db: Session = Depends(get_db)):
+def endpoints_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     endpoints = db.query(models.Endpoint).all()
     return templates.TemplateResponse("endpoints.html", {"request": request, "endpoints": endpoints, "active_page": "endpoints"})
 
@@ -201,7 +212,11 @@ def endpoints_page(request: Request, db: Session = Depends(get_db)):
 def customer_portal(customer_id: str, request: Request, db: Session = Depends(get_db)):
     """Simplified external-facing self-service portal for a customer:
     view + raise tickets, view invoices. In production, gate this behind
-    Entra External ID (CIAM) or a magic-link token instead of a raw path param."""
+    Entra External ID (CIAM) or a magic-link token instead of a raw path param.
+
+    DELIBERATELY NOT gated by require_login_page - customers don't have
+    Letsma Azure accounts, so this must stay reachable without a staff
+    login. Do not add _=Depends(require_login_page) here."""
     customer = db.query(models.Customer).get(customer_id)
     if not customer:
         raise HTTPException(404, "Customer not found")
