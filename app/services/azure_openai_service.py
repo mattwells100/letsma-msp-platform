@@ -1,11 +1,17 @@
 """
 app/services/azure_openai_service.py
 
-Thin wrapper around the Azure OpenAI Chat Completions REST API, used to
-draft (never auto-send) suggested replies to helpdesk tickets. A
-technician always reviews and edits the suggestion before it's posted -
-this service only ever returns a draft string, it never writes to the
-database or sends anything itself.
+Thin wrapper around the Azure OpenAI Chat Completions REST API. Used for:
+  1. draft_ticket_reply() - drafts (never auto-sends) suggested replies to
+     helpdesk tickets. A technician always reviews and edits the
+     suggestion before it's posted - this only ever returns a draft
+     string, it never writes to the database or sends anything itself.
+  2. extract_purchase_from_email() - extracts a structured purchase record
+     (supplier, order number, line items, prices) from a supplier order
+     confirmation email for the purchasing-email-ingest feature. Like the
+     ticket-reply draft, this NEVER writes billing data directly - the
+     caller always lands the result in a needs_review state for a human
+     to confirm before anything becomes billable.
 
 Uses plain httpx REST calls (consistent with how Xero/Graph are already
 integrated elsewhere in this codebase) rather than adding the `openai`
@@ -29,6 +35,8 @@ and behave differently from older models in two important ways:
      overhead and a genuinely useful reply, rather than the ~400 that
      would be typical for an older non-reasoning chat model.
 """
+import json
+
 import httpx
 
 from app.config import settings
@@ -129,3 +137,120 @@ async def draft_ticket_reply(ticket_subject: str, ticket_description: str, custo
         )
 
     return draft
+
+
+# ---------------------------------------------------------------------------
+# Purchase extraction (purchasing-email-ingest feature)
+# ---------------------------------------------------------------------------
+_PURCHASE_EXTRACTION_SYSTEM_PROMPT = """You are a data-extraction engine for an IT Managed Service Provider's purchasing system.
+
+You will be given the text of a supplier order confirmation or shipment notification email (and optionally attachment text, e.g. from a PDF or CSV). Extract the purchase into JSON matching exactly this shape:
+
+{
+  "supplier": string,                 // e.g. "Misco", "CloudControlled", "Cisco", "Ingram Micro", "Broadbandbuyer"
+  "order_number": string or null,      // supplier's order/reference number
+  "order_date": string or null,        // ISO 8601 date, YYYY-MM-DD, if stated
+  "end_user_company": string or null,  // the customer this was ordered for/shipped to, if stated
+  "end_user_email": string or null,
+  "currency": string,                 // ISO code, default "GBP" if not stated
+  "line_items": [
+    {
+      "description": string,
+      "sku": string or null,
+      "quantity": number,
+      "unit_cost": number,
+      "line_total": number
+    }
+  ],
+  "subtotal_ex_vat": number or null,
+  "vat": number or null,
+  "total_inc_vat": number or null,
+  "confidence": number                // your own confidence in this extraction, 0.0 to 1.0
+}
+
+Rules you must follow:
+- If a field is not present in the source text, use null (or [] for line_items) rather than guessing.
+- Never invent an order number, price, or company name that is not present in the text.
+- Output ONLY the JSON object - no preamble, no explanation, no markdown code fences.
+"""
+
+
+def _build_purchase_context(email_subject: str, email_body_text: str, attachment_texts: list) -> str:
+    lines = [f"SUBJECT: {email_subject}", "", "EMAIL BODY:", email_body_text or "(no body text)"]
+    for i, att_text in enumerate(attachment_texts or [], start=1):
+        if att_text:
+            lines.append(f"\nATTACHMENT {i} TEXT:\n{att_text}")
+    # Guard against oversized attachments blowing the context window.
+    return "\n".join(lines)[:12000]
+
+
+async def extract_purchase_from_email(email_subject: str, email_body_text: str, attachment_texts: list) -> dict:
+    """
+    Calls Azure OpenAI to extract a structured purchase record from a
+    supplier order email. Returns the parsed dict. Raises RuntimeError on
+    any config/HTTP error, an empty response, or unparseable JSON - the
+    caller (purchase_email_ingestion_service) is expected to catch this
+    and route the email to a "needs_review" / "failed" state rather than
+    letting the whole polling job crash on one bad email.
+
+    Same gpt-5-mini reasoning-model handling as draft_ticket_reply:
+    no temperature/top_p, and a generous max_completion_tokens budget
+    since reasoning tokens are spent before the visible JSON is written.
+    """
+    if not settings.AZURE_OPENAI_ENDPOINT or not settings.AZURE_OPENAI_API_KEY or not settings.AZURE_OPENAI_DEPLOYMENT_NAME:
+        raise RuntimeError(
+            "Azure OpenAI is not configured yet. Set AZURE_OPENAI_ENDPOINT, "
+            "AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT_NAME in Key Vault, then restart the app."
+        )
+
+    context = _build_purchase_context(email_subject, email_body_text, attachment_texts)
+
+    url = (
+        f"{settings.AZURE_OPENAI_ENDPOINT.rstrip('/')}/openai/deployments/"
+        f"{settings.AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions"
+        f"?api-version={AZURE_OPENAI_API_VERSION}"
+    )
+
+    payload = {
+        "messages": [
+            {"role": "system", "content": _PURCHASE_EXTRACTION_SYSTEM_PROMPT},
+            {"role": "user", "content": context},
+        ],
+        # See draft_ticket_reply() above for why no temperature/top_p and
+        # why max_completion_tokens is generous (2000) for gpt-5-mini.
+        "max_completion_tokens": 2000,
+    }
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(
+            url,
+            headers={"api-key": settings.AZURE_OPENAI_API_KEY, "Content-Type": "application/json"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    content = data["choices"][0]["message"]["content"].strip()
+
+    if not content:
+        finish_reason = data["choices"][0].get("finish_reason", "unknown")
+        usage = data.get("usage", {})
+        raise RuntimeError(
+            f"Azure OpenAI returned an empty extraction (finish_reason={finish_reason}, "
+            f"usage={usage}). This usually means the model used its entire token "
+            f"budget on internal reasoning - the email should be retried or reviewed manually."
+        )
+
+    # Models occasionally wrap JSON in markdown fences despite instructions -
+    # strip those defensively before parsing.
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Could not parse Azure OpenAI output as JSON: {exc}. Raw content: {content[:500]}") from exc

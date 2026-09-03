@@ -67,6 +67,10 @@ app.include_router(auth_xero.router)
 app.include_router(portal.router)
 app.include_router(ai_assist.router)
 
+from app.routers import purchasing_email_ingestion, purchasing_email_admin
+app.include_router(purchasing_email_ingestion.router)
+app.include_router(purchasing_email_admin.router)
+
 @app.on_event("startup")
 async def _on_startup():
     """Starts the background scheduler that polls the helpdesk mailbox

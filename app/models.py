@@ -277,10 +277,14 @@ class AmazonOrder(Base):
     total = Column(Float, default=0.0)  # cost price, as paid to the supplier
     currency = Column(String, default="GBP")
     description = Column(Text, nullable=True)
-    source = Column(String, default="csv_import")  # "csv_import" | "manual"
+    source = Column(String, default="csv_import")  # "csv_import" | "manual" | "email_auto"
     invoiced = Column(Boolean, default=False)
     invoice_id = Column(String, ForeignKey("invoices.id"), nullable=True)
     imported_at = Column(DateTime, default=datetime.utcnow)
+    extraction_status = Column(String, default="confirmed")  # "needs_review" | "confirmed" | "failed" - only relevant when source == "email_auto"
+    raw_extraction_json = Column(Text, nullable=True)  # full AI extraction output (or error), stored as a JSON string via json.dumps - for audit/debugging, not queried directly
+    ingested_at = Column(DateTime, nullable=True)
+    end_user_hint = Column(String, nullable=True)  # "Company Name <email@domain.com>" as extracted, shown in the review UI when customer_id couldn't be auto-matched
 
     customer = relationship("Customer", back_populates="amazon_orders")
     line_items = relationship("AmazonOrderLineItem", back_populates="order", cascade="all, delete-orphan")
@@ -476,6 +480,20 @@ class ProcessedEmail(Base):
     auto_reply_sent = Column(Boolean, default=False)
     processed_at = Column(DateTime, default=datetime.utcnow)
 
+class ProcessedPurchaseEmail(Base):
+    """
+    Tracks every inbound orders@letsma.co.uk email already handled, keyed
+    by its Microsoft Graph message ID - so re-polling the mailbox never
+    creates a duplicate AmazonOrder for the same email. Mirrors
+    ProcessedEmail (used by the helpdesk email-to-ticket feature) above.
+    """
+    __tablename__ = "processed_purchase_emails"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    graph_message_id = Column(String, nullable=False, unique=True)
+    order_id = Column(String, ForeignKey("amazon_orders.id"), nullable=True)
+    subject = Column(String, nullable=True)
+    processed_at = Column(DateTime, default=datetime.utcnow)
 
 # ---------------------------------------------------------------------------
 # OAuth token storage (Xero / Microsoft Graph)
