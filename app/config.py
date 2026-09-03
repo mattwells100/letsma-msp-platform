@@ -85,6 +85,17 @@ class Settings:
     HELPDESK_GRAPH_CLIENT_SECRET: str = os.getenv("HELPDESK_GRAPH_CLIENT_SECRET", "")
     HELPDESK_MAILBOX_ADDRESS: str = os.getenv("HELPDESK_MAILBOX_ADDRESS", "helpdesk@letsma.co.uk")
 
+    # Purchasing email ingest (orders@letsma.co.uk polling) - reuses the SAME
+    # app registration/credentials as the helpdesk mailbox above (both
+    # mailboxes live in Letsma's own tenant), so only the mailbox address
+    # differs. If you'd rather isolate the two, register a second Entra app
+    # and add ORDERS_GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET overrides here -
+    # but you MUST also widen (or add a second) Exchange Application Access
+    # Policy so the app is permitted to read the orders mailbox too; by
+    # default an app restricted to one mailbox gets an access-denied error
+    # on any other, even with valid Mail.Read application permission.
+    ORDERS_MAILBOX_ADDRESS: str = os.getenv("ORDERS_MAILBOX_ADDRESS", "orders@letsma.co.uk")
+
     # AI-drafted ticket replies (Azure OpenAI)
     AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
     AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY", "")
