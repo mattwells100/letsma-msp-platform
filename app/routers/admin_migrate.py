@@ -247,3 +247,20 @@ def migrate_price_term_schema(db: Session = Depends(get_db), _=Depends(_check_ad
     db.commit()
     return {"ok": True, "statements_applied": applied}
 
+
+@router.post("/migrate-technician-sso-schema")
+def migrate_technician_sso_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    """
+    Allows technicians to exist without a local password (SSO-only login
+    from now on - see app/routers/auth.py), and adds entra_object_id for
+    robust matching by Entra ID's stable object id rather than just
+    email. Safe to re-run.
+    """
+    statements = [
+        "ALTER TABLE technicians ALTER COLUMN password_hash DROP NOT NULL",
+        "ALTER TABLE technicians ADD COLUMN IF NOT EXISTS entra_object_id VARCHAR",
+    ]
+    for stmt in statements:
+        db.execute(text(stmt))
+    db.commit()
+    return {"status": "ok", "statements_run": len(statements)}

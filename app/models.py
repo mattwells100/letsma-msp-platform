@@ -134,9 +134,10 @@ class Technician(Base):
     id = Column(String, primary_key=True, default=gen_id)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    password_hash = Column(String, nullable=False)
+    password_hash = Column(String, nullable=True)  # no longer used - login is via Entra SSO only (see app/routers/auth.py). Left nullable rather than removed in case a local-password fallback is ever needed.
     role = Column(String, default="Technician")  # Technician, Manager, Admin
     teams_upn = Column(String, nullable=True)
+    entra_object_id = Column(String, nullable=True)  # Entra ID's stable "oid" claim - populated on first login, more robust than matching by email if a staff member's email address ever changes
     active = Column(Boolean, default=True)
 
 
