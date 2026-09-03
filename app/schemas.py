@@ -54,6 +54,7 @@ class TicketUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     assigned_to: Optional[str] = None
+    contact_id: Optional[str] = None
 
 
 class TicketCommentCreate(BaseModel):
@@ -67,6 +68,7 @@ class TicketOut(BaseModel):
     id: str
     ticket_number: Optional[int]
     customer_id: str
+    contact_id: Optional[str] = None
     subject: str
     description: Optional[str]
     status: str
@@ -75,6 +77,7 @@ class TicketOut(BaseModel):
     assigned_to: Optional[str]
     created_at: datetime
     updated_at: datetime
+
 
 
 # ---------------- Billing ----------------

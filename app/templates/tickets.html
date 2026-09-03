@@ -7,16 +7,16 @@
         <i class="bi bi-plus-lg"></i> New Ticket
     </button>
 </div>
-
 <div class="card stat-card p-3">
     <table class="table align-middle">
-        <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Source</th><th>Priority</th><th>Status</th><th>Updated</th></tr></thead>
+        <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead>
         <tbody>
         {% for t in tickets %}
             <tr onclick="window.location='/tickets/{{ t.id }}'" style="cursor:pointer">
                 <td>{{ t.ticket_number }}</td>
                 <td>{{ t.subject }}</td>
                 <td>{{ t.customer.name }}</td>
+                <td class="small text-muted">{{ t.contact.name if t.contact else '-' }}</td>
                 <td>
                     {% set src = t.source.value if t.source.value is defined else t.source %}
                     {% if src == 'WhatsApp' %}<i class="bi bi-whatsapp text-success"></i>{% elif src == 'Teams' %}<i class="bi bi-microsoft-teams text-primary"></i>{% elif src == 'Email' %}<i class="bi bi-envelope text-secondary"></i>{% else %}<i class="bi bi-globe"></i>{% endif %}
@@ -24,15 +24,15 @@
                 </td>
                 <td><span class="badge badge-priority-{{ (t.priority.value if t.priority.value is defined else t.priority)|replace(' ','') }}">{{ t.priority.value if t.priority.value is defined else t.priority }}</span></td>
                 <td><span class="badge badge-status-{{ (t.status.value if t.status.value is defined else t.status)|replace(' ','') }}">{{ t.status.value if t.status.value is defined else t.status }}</span></td>
-                <td class="small text-muted">{{ t.updated_at.strftime('%d %b %H:%M') }}</td>
+                <td class="small text-muted">{{ t.created_at.strftime('%d %b %Y %H:%M') }}</td>
+                <td class="small text-muted">{{ t.updated_at.strftime('%d %b %Y %H:%M') }}</td>
             </tr>
         {% else %}
-            <tr><td colspan="7" class="text-muted">No tickets yet.</td></tr>
+            <tr><td colspan="9" class="text-muted">No tickets yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
 </div>
-
 <div class="modal fade" id="newTicketModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -43,6 +43,12 @@
             <label class="form-label">Customer</label>
             <select class="form-select" name="customer_id" id="newTicketCustomerSelect" required>
                 <option value="">Loading customers...</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">End User (Contact)</label>
+            <select class="form-select" name="contact_id" id="newTicketContactSelect" disabled>
+                <option value="">-- Select a customer first --</option>
             </select>
           </div>
           <div class="mb-2"><label class="form-label">Subject</label><input class="form-control" name="subject" required></div>
@@ -61,7 +67,6 @@
     </div>
   </div>
 </div>
-
 <script>
 document.getElementById('newTicketModal').addEventListener('show.bs.modal', async () => {
     const select = document.getElementById('newTicketCustomerSelect');
@@ -69,6 +74,39 @@ document.getElementById('newTicketModal').addEventListener('show.bs.modal', asyn
     const customers = await resp.json();
     select.innerHTML = '<option value="">-- Select a customer --</option>' +
         customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+    // Reset the dependent End User dropdown each time the modal opens
+    const contactSelect = document.getElementById('newTicketContactSelect');
+    contactSelect.innerHTML = '<option value="">-- Select a customer first --</option>';
+    contactSelect.disabled = true;
+});
+
+document.getElementById('newTicketCustomerSelect').addEventListener('change', async (e) => {
+    const contactSelect = document.getElementById('newTicketContactSelect');
+    const customerId = e.target.value;
+    if (!customerId) {
+        contactSelect.innerHTML = '<option value="">-- Select a customer first --</option>';
+        contactSelect.disabled = true;
+        return;
+    }
+    contactSelect.disabled = false;
+    contactSelect.innerHTML = '<option value="">Loading contacts...</option>';
+    try {
+        const resp = await fetch(`/api/customers/${customerId}/contacts`);
+        if (resp.ok) {
+            const contacts = await resp.json();
+            if (contacts.length === 0) {
+                contactSelect.innerHTML = '<option value="">-- No contacts found for this customer --</option>';
+            } else {
+                contactSelect.innerHTML = '<option value="">-- No specific contact --</option>' +
+                    contacts.map(c => `<option value="${c.id}">${c.name}${c.email ? ' (' + c.email + ')' : ''}</option>`).join('');
+            }
+        } else {
+            contactSelect.innerHTML = '<option value="">-- Could not load contacts --</option>';
+        }
+    } catch (err) {
+        contactSelect.innerHTML = '<option value="">-- Could not load contacts --</option>';
+    }
 });
 
 async function submitNewTicket() {
@@ -81,6 +119,8 @@ async function submitNewTicket() {
         priority: fd.get('priority'),
         source: 'Portal',
     };
+    const contactId = fd.get('contact_id');
+    if (contactId) payload.contact_id = contactId;
     if (!payload.customer_id) { alert('Please select a customer'); return; }
     const resp = await fetch('/api/tickets/', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     if (resp.ok) {
