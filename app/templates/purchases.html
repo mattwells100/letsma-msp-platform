@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Purchasing - Letsma MSP{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="page-title">Purchasing</h2>
+    <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newPurchaseModal">
+        <i class="bi bi-plus-lg"></i> Log Purchase
+    </button>
+</div>
+
+<!-- ============================================================ -->
+<!-- Needs Review: email-ingested drafts from orders@letsma.co.uk -->
+<!-- ============================================================ -->
+{% if needs_review_orders %}
+<div class="card stat-card p-3 mb-4" style="border-left: 4px solid #e0a800">
+    <h5 class="mb-3"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Needs Review ({{ needs_review_orders|length }})</h5>
+    <p class="small text-muted mb-3">These orders were automatically captured from <code>orders@letsma.co.uk</code> and extracted by AI. Confirm the customer (and correct the total if needed) before they can be added to an invoice.</p>
+    <table class="table align-middle">
+        <thead>
+            <tr>
+                <th>Supplier</th>
+                <th>Order Ref</th>
+                <th>Extracted For</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Assign Customer</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for o in needs_review_orders %}
+            <tr id="review-row-{{ o.id }}">
+                <td><strong>{{ o.supplier }}</strong></td>
+                <td>{{ o.amazon_order_id }}</td>
+                <td class="small text-muted">{{ o.end_user_hint or '—' }}</td>
+                <td>{{ o.currency }} {{ "%.2f"|format(o.total) }}</td>
+                <td>
+                    {% if o.extraction_status == 'failed' %}
+                        <span class="badge bg-danger">Extraction failed</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">Needs review</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <select class="form-select form-select-sm" id="customer-select-{{ o.id }}" style="max-width:220px">
+                        <option value="">-- Select customer --</option>
+                        {% for c in customers %}
+                            <option value="{{ c.id }}" {% if o.customer_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td class="text-nowrap">
+                    <button class="btn btn-sm btn-success" onclick="confirmPurchase('{{ o.id }}')">
+                        <i class="bi bi-check-lg"></i> Confirm
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deletePurchase('{{ o.id }}', 'review-row-{{ o.id }}')" title="Discard this draft">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- All Purchases -->
+<!-- ============================================================ -->
+<div class="card stat-card p-3">
+    <h5 class="mb-3">All Purchases</h5>
+    <table class="table align-middle">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Supplier</th>
+                <th>Order Ref</th>
+                <th>Description</th>
+                <th>Customer</th>
+                <th>Total</th>
+                <th>Source</th>
+                <th>Invoiced</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for o in all_orders %}
+            <tr id="order-row-{{ o.id }}">
+                <td class="small">{{ o.order_date.strftime('%d %b %Y') if o.order_date else '-' }}</td>
+                <td>{{ o.supplier }}</td>
+                <td>{{ o.amazon_order_id }}</td>
+                <td class="small text-muted">{{ o.description or '-' }}</td>
+                <td>{{ o.customer.name if o.customer else '—' }}</td>
+                <td>{{ o.currency }} {{ "%.2f"|format(o.total) }}</td>
+                <td><span class="badge bg-secondary">{{ o.source }}</span></td>
+                <td>
+                    {% if o.invoiced %}
+                        <span class="badge bg-success">Invoiced</span>
+                    {% else %}
+                        <span class="badge bg-light text-dark border">Unbilled</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not o.invoiced %}
+                    <button class="btn btn-sm btn-outline-danger" onclick="deletePurchase('{{ o.id }}', 'order-row-{{ o.id }}')" title="Delete this purchase">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="9" class="text-muted">No purchases logged yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- New Purchase Modal: submits via fetch() to the JSON API -->
+<div class="modal fade" id="newPurchaseModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Log Purchase</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <form id="newPurchaseForm">
+          <div class="mb-2"><label class="form-label">Supplier</label><input class="form-control" name="supplier" required placeholder="e.g. CDW, Ingram Micro, Local Shop"></div>
+          <div class="mb-2"><label class="form-label">Description</label><input class="form-control" name="description" required></div>
+          <div class="mb-2"><label class="form-label">Total (cost price, £)</label><input class="form-control" name="total" type="number" step="0.01" required></div>
+          <div class="mb-2"><label class="form-label">Order Reference (optional)</label><input class="form-control" name="order_reference"></div>
+          <div class="mb-2">
+            <label class="form-label">Assign to Customer (optional)</label>
+            <select class="form-select" name="customer_id">
+                <option value="">-- Unassigned --</option>
+                {% for c in customers %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="submitNewPurchase()">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function submitNewPurchase() {
+    const form = document.getElementById('newPurchaseForm');
+    const data = Object.fromEntries(new FormData(form).entries());
+    if (data.total) data.total = parseFloat(data.total);
+    if (!data.customer_id) delete data.customer_id;
+    if (!data.order_reference) delete data.order_reference;
+    const resp = await fetch('/api/purchases/', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+    });
+    if (resp.ok) { window.location.reload(); } else { alert('Failed to create purchase: ' + await resp.text()); }
+}
+
+async function confirmPurchase(orderId) {
+    const select = document.getElementById('customer-select-' + orderId);
+    const customerId = select.value;
+    if (!customerId) { alert('Please select a customer before confirming.'); return; }
+    const resp = await fetch(`/api/purchasing/email-ingestion/${orderId}/confirm`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({customer_id: customerId})
+    });
+    if (resp.ok) { window.location.reload(); } else { alert('Failed to confirm purchase: ' + await resp.text()); }
+}
+
+async function deletePurchase(orderId, rowId) {
+    if (!confirm('Are you sure you want to delete this purchase? This cannot be undone.')) return;
+    const resp = await fetch(`/api/purchases/${orderId}`, { method: 'DELETE' });
+    if (resp.ok) {
+        document.getElementById(rowId).remove();
+    } else {
+        alert('Failed to delete purchase: ' + await resp.text());
+    }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}
