@@ -36,6 +36,20 @@ SKU_FRIENDLY_NAMES = {
     "THREAT_INTELLIGENCE": "Defender for Office 365 (Plan 2)",
     "AAD_PREMIUM": "Entra ID P1",
     "AAD_PREMIUM_P2": "Entra ID P2",
+    "VISIOCLIENT": "Visio Plan 2",
+    "WINDOWS_STORE": "Windows Store",
+    "FLOW_FREE": "Microsoft Power Automate Free",
+    "POWERAPPS_VIRAL": "Microsoft Power Apps Plan 2 Trial",
+    "MICROSOFT_INTUNE_SUITE_FOR_FLW": "Microsoft Intune Suite for Frontline Workers",
+    "POWER_BI_STANDARD": "Microsoft Power BI Free",
+    "PROJECTPROFESSIONAL": "Project Plan 3",
+    "EXCHANGEARCHIVE_ADDON": "Exchange Online Archiving",
+    "Microsoft_Teams_Rooms_Basic_without_Audio_Conferencing": "Microsoft Teams Rooms Basic without Audio Conferencing",
+    "POWERAPPS_DEV": "Microsoft Power Apps Developer Plan",
+    "DYN365_BUSCENTRAL_ESSENTIAL": "Dynamics 365 Business Central Essentials",
+    "Microsoft_Teams_Rooms_Basic": "Microsoft Teams Rooms Basic",
+    "DYN365_FINANCIALS_ACCOUNTANT_SKU": "Dynamics 365 Business Central External Accountant",
+    "MICROSOFT_365_COPILOT_FOR_BUSINESS": "Microsoft 365 Copilot for Business",
 }
 
 
