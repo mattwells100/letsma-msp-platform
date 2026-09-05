@@ -1,64 +1,169 @@
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">Recurring Billing Items</h5>
+{% extends "base.html" %}
+{% block title %}Recurring Billing - {{ customer.name }} - Letsma MSP{% endblock %}
+{% block content %}
 
-        <button class="btn btn-primary">
-            Add Item
-        </button>
-    </div>
-
-    <div class="card-body">
-        <table class="table table-striped">
-
-            <thead>
-                <tr>
-                    <th>Description</th>
-                    <th>Supplier</th>
-                    <th>Qty</th>
-                    <th>Cost</th>
-                    <th>Sell</th>
-                    <th>Frequency</th>
-                    <th>Next Invoice</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-
-            <tbody>
-
-                {% for item in items %}
-                <tr>
-
-                    <td>{{ item.description }}</td>
-
-                    <td>{{ item.supplier_name or "" }}</td>
-
-                    <td>{{ item.quantity }}</td>
-
-                    <td>£{{ item.cost_price }}</td>
-
-                    <td>£{{ item.sale_price }}</td>
-
-                    <td>{{ item.billing_frequency }}</td>
-
-                    <td>{{ item.next_invoice_date }}</td>
-
-                    <td>
-                        {% if item.is_active %}
-                        <span class="badge bg-success">
-                            Active
-                        </span>
-                        {% else %}
-                        <span class="badge bg-secondary">
-                            Disabled
-                        </span>
-                        {% endif %}
-                    </td>
-
-                </tr>
-                {% endfor %}
-
-            </tbody>
-
-        </table>
+<div class="d-flex justify-content-between align-items-center mb-1">
+    <h2 class="page-title mb-0">Recurring Billing</h2>
+    <div>
+        <a class="btn btn-outline-secondary" href="/customers/{{ customer.id }}"><i class="bi bi-arrow-left"></i> Back to Customer</a>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addItemModal"><i class="bi bi-plus-lg"></i> Add Item</button>
     </div>
 </div>
+<div class="text-muted mb-4">{{ customer.name }} &middot; Adobe, Exclaimer, Bluebeam, domain renewals and other recurring charges</div>
+
+<div id="resultMsg" class="mb-3"></div>
+
+<div class="card stat-card p-3">
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th>Supplier</th>
+                <th>Category</th>
+                <th class="text-end">Qty</th>
+                <th class="text-end">Cost (ex VAT)</th>
+                <th class="text-end">Sell (ex VAT)</th>
+                <th>Frequency</th>
+                <th>Next Invoice</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in items %}
+            <tr>
+                <td>{{ item.description }}</td>
+                <td>{{ item.supplier_name or '-' }}</td>
+                <td>{{ item.billing_category }}</td>
+                <td class="text-end">{{ item.quantity }}</td>
+                <td class="text-end">&pound;{{ '%.2f'|format(item.cost_price) }}</td>
+                <td class="text-end">&pound;{{ '%.2f'|format(item.sale_price) }}</td>
+                <td>{{ item.billing_frequency }}</td>
+                <td>{{ item.next_invoice_date }}</td>
+                <td>
+                    {% if item.is_active %}
+                        <span class="badge bg-success">Active</span>
+                    {% else %}
+                        <span class="badge bg-secondary">Disabled</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="9" class="text-muted">No recurring billing items yet. Click "Add Item" to create one.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Add Item Modal -->
+<div class="modal fade" id="addItemModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Recurring Billing Item</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="addItemForm" onsubmit="return addRecurringItem(event)">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <input type="text" class="form-control" name="description" placeholder="e.g. Adobe Acrobat Pro" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Supplier</label>
+                            <input type="text" class="form-control" name="supplier_name" placeholder="e.g. Adobe">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Category</label>
+                            <select class="form-select" name="billing_category">
+                                <option value="SERVICE">Service</option>
+                                <option value="SOFTWARE">Software</option>
+                                <option value="DOMAIN">Domain</option>
+                                <option value="LICENCE">Licence</option>
+                                <option value="HARDWARE">Hardware</option>
+                                <option value="OTHER">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Quantity</label>
+                            <input type="number" step="0.01" class="form-control" name="quantity" value="1" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Cost Price (ex VAT)</label>
+                            <input type="number" step="0.01" class="form-control" name="cost_price" value="0" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Sale Price (ex VAT)</label>
+                            <input type="number" step="0.01" class="form-control" name="sale_price" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Frequency</label>
+                            <select class="form-select" name="billing_frequency">
+                                <option value="MONTHLY">Monthly</option>
+                                <option value="QUARTERLY">Quarterly</option>
+                                <option value="ANNUALLY">Annually</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Start Date</label>
+                            <input type="date" class="form-control" name="start_date" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes (optional)</label>
+                        <textarea class="form-control" name="notes" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Item</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+async function addRecurringItem(e) {
+    e.preventDefault();
+    const form = document.getElementById('addItemForm');
+    const fd = new FormData(form);
+
+    const payload = {
+        description: fd.get('description'),
+        supplier_name: fd.get('supplier_name') || null,
+        billing_category: fd.get('billing_category'),
+        quantity: parseFloat(fd.get('quantity')),
+        cost_price: parseFloat(fd.get('cost_price')),
+        sale_price: parseFloat(fd.get('sale_price')),
+        billing_frequency: fd.get('billing_frequency'),
+        start_date: fd.get('start_date'),
+        notes: fd.get('notes') || null
+    };
+
+    try {
+        const resp = await fetch('/api/customers/{{ customer.id }}/recurring-billing', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+
+        if (resp.ok) {
+            window.location.reload();
+        } else {
+            const data = await resp.json();
+            document.getElementById('resultMsg').innerHTML =
+                `<div class="alert alert-danger py-2 mb-0">Failed to save: ${data.detail || JSON.stringify(data)}</div>`;
+        }
+    } catch (err) {
+        document.getElementById('resultMsg').innerHTML =
+            `<div class="alert alert-danger py-2 mb-0">Failed to save: ${err}</div>`;
+    }
+    return false;
+}
+</script>
+{% endblock %}
