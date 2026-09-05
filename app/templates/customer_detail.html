@@ -23,12 +23,9 @@
     <div class="col-md-3">
         <a class="btn btn-outline-secondary w-100" href="/portal/{{ customer.id }}" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Open Customer Portal</a>
     </div>
-<div class="col-md-3">
-    <a class="btn btn-outline-success w-100"
-       href="/customers/{{ customer.id }}/recurring      Recurring Billing
-    </a>
-</div>
-</div>
+    <div class="col-md-3">
+        <a class="btn btn-outline-primary w-100" href="/customers/{{ customer.id }}/recurring-billing"><i class="bi bi-arrow-repeat"></i> Recurring Billing</a>
+    </div>
 </div>
 
 <div id="contactsSyncResult" class="mb-3"></div>
@@ -73,7 +70,7 @@
                 <thead><tr><th>Number</th><th>Total</th><th>Status</th></tr></thead>
                 <tbody>
                 {% for i in invoices %}
-                    <tr><td>{{ i.invoice_number or i.id[:8] }}</td><td>£{{ '%.2f'|format(i.total) }}</td>
+                    <tr><td>{{ i.invoice_number or i.id[:8] }}</td><td>&pound;{{ '%.2f'|format(i.total) }}</td>
                         <td><span class="badge bg-secondary">{{ i.status.value if i.status.value is defined else i.status }}</span></td></tr>
                 {% else %}
                     <tr><td colspan="3" class="text-muted">No invoices.</td></tr>
