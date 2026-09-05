@@ -1,3 +1,4 @@
+from app.models import LicenseAssignment
 """
 Server-rendered portal views (Jinja2 + Bootstrap) covering:
   - Internal technician dashboard (/dashboard)
