@@ -6,6 +6,7 @@
     <h2 class="page-title mb-0">Recurring Billing</h2>
     <div>
         <a class="btn btn-outline-secondary" href="/customers/{{ customer.id }}"><i class="bi bi-arrow-left"></i> Back to Customer</a>
+        <a class="btn btn-outline-primary" href="/recurring-catalog"><i class="bi bi-journal-text"></i> Catalogue</a>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addItemModal"><i class="bi bi-plus-lg"></i> Add Item</button>
     </div>
 </div>
@@ -64,18 +65,29 @@
             </div>
             <form id="addItemForm" onsubmit="return addRecurringItem(event)">
                 <div class="modal-body">
+
+                    <div class="mb-3">
+                        <label class="form-label">Add from Catalogue (optional)</label>
+                        <select class="form-select" id="catalogSelect" onchange="applyCatalog()">
+                            <option value="">-- Blank item / choose a catalogue item --</option>
+                        </select>
+                        <div class="form-text">Pick a catalogue item to pre-fill the fields below, then override the description/prices as needed.</div>
+                    </div>
+
+                    <hr>
+
                     <div class="mb-3">
                         <label class="form-label">Description</label>
-                        <input type="text" class="form-control" name="description" placeholder="e.g. Adobe Acrobat Pro" required>
+                        <input type="text" class="form-control" name="description" id="fld_description" placeholder="e.g. rainsford.co.uk domain renewal" required>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Supplier</label>
-                            <input type="text" class="form-control" name="supplier_name" placeholder="e.g. Adobe">
+                            <input type="text" class="form-control" name="supplier_name" id="fld_supplier" placeholder="e.g. 123-reg">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Category</label>
-                            <select class="form-select" name="billing_category">
+                            <select class="form-select" name="billing_category" id="fld_category">
                                 <option value="SERVICE">Service</option>
                                 <option value="SOFTWARE">Software</option>
                                 <option value="DOMAIN">Domain</option>
@@ -88,21 +100,21 @@
                     <div class="row">
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Quantity</label>
-                            <input type="number" step="0.01" class="form-control" name="quantity" value="1" required>
+                            <input type="number" step="0.01" class="form-control" name="quantity" id="fld_quantity" value="1" required>
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Cost Price (ex VAT)</label>
-                            <input type="number" step="0.01" class="form-control" name="cost_price" value="0" required>
+                            <input type="number" step="0.01" class="form-control" name="cost_price" id="fld_cost" value="0" required>
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Sale Price (ex VAT)</label>
-                            <input type="number" step="0.01" class="form-control" name="sale_price" required>
+                            <input type="number" step="0.01" class="form-control" name="sale_price" id="fld_sale" required>
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Frequency</label>
-                            <select class="form-select" name="billing_frequency">
+                            <select class="form-select" name="billing_frequency" id="fld_frequency">
                                 <option value="MONTHLY">Monthly</option>
                                 <option value="QUARTERLY">Quarterly</option>
                                 <option value="ANNUALLY">Annually</option>
@@ -110,12 +122,12 @@
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Start Date</label>
-                            <input type="date" class="form-control" name="start_date" required>
+                            <input type="date" class="form-control" name="start_date" id="fld_start" required>
                         </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Notes (optional)</label>
-                        <textarea class="form-control" name="notes" rows="2"></textarea>
+                        <textarea class="form-control" name="notes" id="fld_notes" rows="2"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -128,10 +140,40 @@
 </div>
 
 <script>
+let catalogItems = [];
+
+async function loadCatalog() {
+    try {
+        const resp = await fetch('/api/recurring-catalog');
+        if (!resp.ok) return;
+        catalogItems = await resp.json();
+        const sel = document.getElementById('catalogSelect');
+        catalogItems.filter(c => c.is_active).forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name + (c.supplier_name ? ' (' + c.supplier_name + ')' : '');
+            sel.appendChild(opt);
+        });
+    } catch (err) { /* catalogue optional - ignore */ }
+}
+
+function applyCatalog() {
+    const id = document.getElementById('catalogSelect').value;
+    if (!id) return;
+    const c = catalogItems.find(x => x.id === id);
+    if (!c) return;
+    document.getElementById('fld_description').value = c.description || '';
+    document.getElementById('fld_supplier').value = c.supplier_name || '';
+    document.getElementById('fld_category').value = c.billing_category || 'SERVICE';
+    document.getElementById('fld_cost').value = c.default_cost_price || 0;
+    document.getElementById('fld_sale').value = c.default_sale_price || 0;
+    document.getElementById('fld_frequency').value = c.default_billing_frequency || 'MONTHLY';
+}
+
 async function addRecurringItem(e) {
     e.preventDefault();
-    const form = document.getElementById('addItemForm');
-    const fd = new FormData(form);
+    const fd = new FormData(document.getElementById('addItemForm'));
+    const catalogId = document.getElementById('catalogSelect').value;
 
     const payload = {
         description: fd.get('description'),
@@ -145,13 +187,18 @@ async function addRecurringItem(e) {
         notes: fd.get('notes') || null
     };
 
+    let url = '/api/customers/{{ customer.id }}/recurring-billing';
+    if (catalogId) {
+        url = '/api/customers/{{ customer.id }}/recurring-billing/from-catalog';
+        payload.catalog_item_id = catalogId;
+    }
+
     try {
-        const resp = await fetch('/api/customers/{{ customer.id }}/recurring-billing', {
+        const resp = await fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
         });
-
         if (resp.ok) {
             window.location.reload();
         } else {
@@ -165,5 +212,7 @@ async function addRecurringItem(e) {
     }
     return false;
 }
+
+loadCatalog();
 </script>
 {% endblock %}

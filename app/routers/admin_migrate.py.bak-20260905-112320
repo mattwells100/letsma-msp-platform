@@ -349,31 +349,3 @@ def migrate_technician_sso_schema(db: Session = Depends(get_db), _=Depends(_chec
         db.execute(text(stmt))
     db.commit()
     return {"status": "ok", "statements_run": len(statements)}
-
-
-@router.post("/migrate-recurring-catalog-schema")
-def migrate_recurring_catalog_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
-    statements = [
-        """
-        CREATE TABLE IF NOT EXISTS recurring_billing_catalog (
-            id VARCHAR PRIMARY KEY,
-            name VARCHAR NOT NULL,
-            description VARCHAR NOT NULL,
-            supplier_name VARCHAR,
-            billing_category VARCHAR NOT NULL DEFAULT 'SERVICE',
-            default_cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
-            default_sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
-            default_billing_frequency VARCHAR NOT NULL DEFAULT 'MONTHLY',
-            is_active BOOLEAN NOT NULL DEFAULT TRUE,
-            notes TEXT,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """,
-        "ALTER TABLE recurring_billing_items ADD COLUMN IF NOT EXISTS catalog_item_id VARCHAR",
-        "CREATE INDEX IF NOT EXISTS ix_rbi_catalog_item ON recurring_billing_items(catalog_item_id)",
-    ]
-    for stmt in statements:
-        db.execute(text(stmt))
-    db.commit()
-    return {"status": "ok", "statements_run": len(statements)}
