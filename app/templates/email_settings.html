@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Email Settings - Letsma MSP{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="page-title mb-0">Email Settings</h2>
+</div>
+
+<div class="card stat-card p-3 mb-4">
+    <h5 class="mb-2">Excluded Senders</h5>
+    <p class="small text-muted mb-3">
+        Emails from any address or domain listed here will NEVER create a helpdesk ticket -
+        useful for newsletters, no-reply addresses, or automated notifications that
+        occasionally land in <code>helpdesk@letsma.co.uk</code>. Use an exact address
+        (e.g. <code>noreply@vendor.com</code>) or a domain wildcard (e.g. <code>*@spamdomain.com</code>)
+        to block an entire domain.
+    </p>
+
+    <form class="row g-2 mb-3" onsubmit="return addExcludedSender(event)">
+        <div class="col-md-4">
+            <input type="text" class="form-control form-control-sm" id="newPattern" placeholder="e.g. noreply@vendor.com or *@spamdomain.com" required>
+        </div>
+        <div class="col-md-5">
+            <input type="text" class="form-control form-control-sm" id="newReason" placeholder="Reason (optional)">
+        </div>
+        <div class="col-md-3">
+            <button type="submit" class="btn btn-sm w-100 text-white" style="background-color:#0b2545">
+                <i class="bi bi-plus-lg"></i> Add Exclusion
+            </button>
+        </div>
+    </form>
+
+    <div id="excludedSendersError" class="mb-2"></div>
+
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr><th>Pattern</th><th>Reason</th><th style="width:60px"></th></tr>
+        </thead>
+        <tbody id="excludedSendersBody">
+            <tr><td colspan="3" class="text-muted">Loading...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function loadExcludedSenders() {
+    const tbody = document.getElementById('excludedSendersBody');
+    const errorDiv = document.getElementById('excludedSendersError');
+    errorDiv.innerHTML = '';
+    try {
+        const resp = await fetch('/api/email-ingestion/excluded-senders');
+        if (!resp.ok) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-danger">Failed to load excluded senders.</td></tr>';
+            return;
+        }
+        const rows = await resp.json();
+        if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-muted">No excluded senders yet.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(r => `
+            <tr id="excl-row-${r.id}">
+                <td><code>${r.pattern}</code></td>
+                <td class="text-muted">${r.reason || '-'}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteExcludedSender('${r.id}')" title="Remove exclusion">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-danger">Failed to load excluded senders.</td></tr>';
+    }
+}
+
+async function addExcludedSender(e) {
+    e.preventDefault();
+    const pattern = document.getElementById('newPattern').value.trim();
+    const reason = document.getElementById('newReason').value.trim();
+    const errorDiv = document.getElementById('excludedSendersError');
+    errorDiv.innerHTML = '';
+
+    const resp = await fetch('/api/email-ingestion/excluded-senders', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pattern: pattern, reason: reason || null}),
+    });
+
+    if (resp.ok) {
+        document.getElementById('newPattern').value = '';
+        document.getElementById('newReason').value = '';
+        loadExcludedSenders();
+    } else {
+        const data = await resp.json().catch(() => ({}));
+        errorDiv.innerHTML = `<div class="alert alert-danger py-2 mb-2">${data.detail || 'Failed to add exclusion.'}</div>`;
+    }
+    return false;
+}
+
+async function deleteExcludedSender(id) {
+    if (!confirm('Remove this exclusion? Emails from this sender will start creating tickets again.')) return;
+    const resp = await fetch(`/api/email-ingestion/excluded-senders/${id}`, {method: 'DELETE'});
+    if (resp.ok) {
+        document.getElementById(`excl-row-${id}`).remove();
+    } else {
+        alert('Failed to remove exclusion.');
+    }
+}
+
+loadExcludedSenders();
+</script>
+{% endblock %}

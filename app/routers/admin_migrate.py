@@ -247,6 +247,23 @@ def migrate_price_term_schema(db: Session = Depends(get_db), _=Depends(_check_ad
     db.commit()
     return {"ok": True, "statements_applied": applied}
 
+@router.post("/migrate-ticket-conversation-schema")
+def migrate_ticket_conversation_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    """
+    Adds conversation_id to tickets so that a reply email (same Microsoft
+    Graph conversation thread as an existing ticket) can be detected and
+    added as a comment instead of creating a duplicate ticket. Safe to
+    re-run.
+    """
+    statements = [
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS conversation_id VARCHAR",
+        "CREATE INDEX IF NOT EXISTS ix_tickets_conversation_id ON tickets (conversation_id)",
+    ]
+    for stmt in statements:
+        db.execute(text(stmt))
+    db.commit()
+    return {"status": "ok", "statements_run": len(statements)}
+
 
 @router.post("/migrate-technician-sso-schema")
 def migrate_technician_sso_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):

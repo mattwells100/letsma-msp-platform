@@ -4,6 +4,7 @@ Server-rendered portal views (Jinja2 + Bootstrap) covering:
   - Customer, ticket, billing, license, and endpoint list/detail pages
   - A simplified external customer-facing portal (/portal/{customer_id})
   - Billing settings (customer billing config + license pricing)
+  - Email settings (excluded senders for helpdesk email-to-ticket)
 
 This keeps the MVP dependency-light (no separate frontend build step).
 For a production-grade UI, swap this for a React/Next.js SPA consuming the
@@ -187,6 +188,16 @@ def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Dep
         "license_prices": license_prices,
         "known_skus": known_skus,
         "active_page": "billing-settings",
+    })
+
+
+@router.get("/email-settings")
+def email_settings_page(request: Request, _=Depends(require_login_page)):
+    """Manage the helpdesk email-to-ticket excluded-senders list (see
+    app/services/email_ingestion_service.py / app/routers/email_ingestion.py
+    for the underlying logic and API)."""
+    return templates.TemplateResponse("email_settings.html", {
+        "request": request, "active_page": "email-settings",
     })
 
 

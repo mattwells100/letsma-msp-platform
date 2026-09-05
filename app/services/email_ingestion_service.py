@@ -4,17 +4,43 @@ app/services/email_ingestion_service.py
 Polls the helpdesk@letsma.co.uk mailbox via Microsoft Graph, turning new
 inbound emails into helpdesk tickets automatically. Handles:
   - Excluding specific senders/domains from ever creating a ticket
+    (managed via /api/email-ingestion/excluded-senders - see
+    app/routers/email_ingestion.py and app/templates/email_settings.html
+    for the GUI).
   - Detecting forwarded emails and extracting the ORIGINAL sender's
     details (so a ticket is correctly attributed to the customer who
-    actually emailed, not the staff member who forwarded it)
-  - Matching against simple keyword-triggered auto-reply rules
-  - De-duplicating so re-polling never creates a second ticket for the
-    same email
+    actually emailed, not the staff member who forwarded it).
+  - REPLY DETECTION (new): if an inbound email is part of the SAME
+    Microsoft Graph email conversation thread as an existing ticket, it
+    is added as a COMMENT on that ticket rather than creating a
+    duplicate ticket. This uses Graph's conversationId field, which is
+    preserved automatically whenever a customer hits "Reply" in their
+    mail client (Outlook, Gmail, Apple Mail, etc. all preserve this via
+    standard email threading headers) - it is NOT based on subject-line
+    matching, which would risk merging unrelated tickets that happen to
+    share similar wording. If a matched ticket was Resolved/Closed, a
+    reply reopens it to "In Progress" automatically, since the customer
+    following up implies the issue isn't actually resolved for them.
+  - Matching against simple keyword-triggered auto-reply rules.
+  - De-duplicating so re-polling never creates a second ticket (or a
+    second comment) for the same email.
   - Creating a ticket even when no customer can be matched - customer_id
     is simply left null and the original sender's name/email are
     preserved on reporter_name/reporter_email, so a technician can
     review and manually assign the right customer afterwards, rather
     than the email being silently dropped.
+
+IMPORTANT CAVEAT on reply detection: this is most useful once
+HELPDESK_AUTO_REPLIES_ENABLED is turned on (see config.py), since that's
+what gives the customer an actual email thread in their inbox to reply
+within (the "we've logged your ticket" confirmation email, sent with
+subject "Re: <original subject> [Ticket #N]", is what establishes the
+conversation Microsoft Graph then tracks). With auto-replies still
+disabled, reply detection still works for any case where the customer's
+follow-up email genuinely threads with their original email in Graph
+(e.g. they keep replying within the same email chain that included
+helpdesk@ from the start) - it just won't have a Letsma-sent message to
+anchor the thread yet.
 
 TICKET DESCRIPTION FORMATTING: the description is stored as just the
 CLEAN message body (no "From: X <Y>" prefix) - who reported the ticket
@@ -29,11 +55,6 @@ together into an unreadable wall of text once rendered.
 OUTBOUND EMAIL IS DISABLED BY DEFAULT: neither the keyword-triggered
 auto-reply nor the "we've logged your ticket" confirmation email is sent
 unless settings.HELPDESK_AUTO_REPLIES_ENABLED is explicitly set to true.
-This lets ticket ingestion (matching, forwarded-email parsing, exclusion
-list, ticket creation) run safely against a real mailbox with ZERO risk
-of an unintended email reaching a real customer. Flip
-HELPDESK_AUTO_REPLIES_ENABLED on only once you've reviewed a batch of
-auto-created tickets and are confident in the setup.
 
 Requires its own dedicated Entra ID app registration (kept separate from
 the per-customer Graph app used for license/contact sync, since this one
@@ -50,7 +71,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import (
-    Ticket, TicketSource, TicketPriority, Customer, Contact,
+    Ticket, TicketComment, TicketSource, TicketPriority, Customer, Contact,
     ExcludedEmailSender, AutoReplyRule, ProcessedEmail,
 )
 from app.services.ticket_numbering import next_ticket_number
@@ -84,7 +105,9 @@ def is_sender_excluded(email_address: str, db: Session) -> bool:
     """
     Checks an email address against the ExcludedEmailSender list.
     Supports exact matches ("noreply@vendor.com") and domain wildcards
-    ("*@spamdomain.com"). Matching is case-insensitive.
+    ("*@spamdomain.com"). Matching is case-insensitive. Managed via
+    /api/email-ingestion/excluded-senders (see the Email Settings page
+    in the GUI).
     """
     if not email_address:
         return False
@@ -267,6 +290,56 @@ def _find_customer_and_contact(db: Session, email_address: str):
 
 
 # ---------------------------------------------------------------------------
+# Reply detection (conversation threading)
+# ---------------------------------------------------------------------------
+def _find_ticket_by_conversation(db: Session, conversation_id: str):
+    """
+    Looks up an existing ticket that originated from the same Microsoft
+    Graph email conversation thread. Returns the most recently created
+    matching ticket, or None. Deliberately matches on conversation_id
+    ONLY (not subject text) - subject-based matching risks silently
+    merging two unrelated tickets that happen to share similar wording,
+    which would be worse than the duplicate-ticket problem this feature
+    is meant to solve.
+    """
+    if not conversation_id:
+        return None
+    return (
+        db.query(Ticket)
+        .filter(Ticket.conversation_id == conversation_id)
+        .order_by(Ticket.created_at.desc())
+        .first()
+    )
+
+
+def _add_reply_comment(db: Session, ticket: Ticket, author_name: str, message_body: str):
+    """
+    Adds the incoming email as a comment on an existing ticket (rather
+    than creating a duplicate ticket). If the ticket had been marked
+    Resolved/Closed, reopens it to "In Progress" - a customer replying
+    implies the issue isn't actually resolved for them. If it was
+    "Waiting on Customer", also moves it to "In Progress" since they've
+    now responded. Does NOT commit - the caller is responsible for that.
+    """
+    comment = TicketComment(
+        ticket_id=ticket.id,
+        author=author_name or "Customer (via email)",
+        message=message_body.strip() or "(no message content)",
+        is_internal_note=False,
+    )
+    db.add(comment)
+
+    current_status = ticket.status.value if hasattr(ticket.status, "value") else ticket.status
+    if current_status in ("Resolved", "Closed"):
+        ticket.status = "In Progress"
+        ticket.resolved_at = None
+    elif current_status == "Waiting on Customer":
+        ticket.status = "In Progress"
+
+    ticket.updated_at = datetime.utcnow()
+
+
+# ---------------------------------------------------------------------------
 # Sending mail (gated behind settings.HELPDESK_AUTO_REPLIES_ENABLED)
 # ---------------------------------------------------------------------------
 async def _send_helpdesk_email(token: str, to_address: str, subject: str, body: str):
@@ -302,12 +375,14 @@ async def _mark_email_read(token: str, message_id: str):
 async def process_single_email(db: Session, token: str, message: dict) -> dict:
     """
     Processes one Graph message dict end-to-end: dedup check, exclusion
-    check, forward parsing, ticket creation (with or without a matched
-    customer), auto-reply/confirmation email (ONLY if explicitly
-    enabled), and marking the source email as read. Returns a summary
-    dict describing what happened (useful for logging/testing).
+    check, conversation-thread reply detection, forward parsing, ticket
+    creation OR reply-comment addition, auto-reply/confirmation email
+    (ONLY if explicitly enabled), and marking the source email as read.
+    Returns a summary dict describing what happened (useful for
+    logging/testing).
     """
     graph_message_id = message["id"]
+    conversation_id = message.get("conversationId")
 
     already_processed = db.query(ProcessedEmail).filter_by(graph_message_id=graph_message_id).first()
     if already_processed:
@@ -354,6 +429,26 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
         effective_body = _strip_html(body_content) if body_content_type == "html" else body_content
         was_forward = False
 
+    # --- Reply detection: is this part of an existing ticket's conversation? ---
+    # Checked BEFORE customer-matching/ticket-creation - if this email is a
+    # continuation of an existing ticket's thread, we add it as a comment
+    # and stop here entirely (no new ticket, no re-matching of customer).
+    existing_ticket = _find_ticket_by_conversation(db, conversation_id)
+    if existing_ticket:
+        _add_reply_comment(db, existing_ticket, effective_name, effective_body)
+        db.add(ProcessedEmail(
+            graph_message_id=graph_message_id, sender_email=effective_email, subject=effective_subject,
+            ticket_id=existing_ticket.id, was_excluded=False, auto_reply_sent=False,
+        ))
+        db.commit()
+        await _mark_email_read(token, graph_message_id)
+        return {
+            "action": "reply_added",
+            "sender": effective_email,
+            "ticket_number": existing_ticket.ticket_number,
+            "was_forward": was_forward,
+        }
+
     customer, contact = _find_customer_and_contact(db, effective_email)
 
     # ALWAYS create a ticket, even when no customer could be matched.
@@ -362,13 +457,9 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
     # so a technician can review and manually assign the right customer
     # later via the ticket detail page.
     #
-    # The description stores ONLY the clean message body - who sent it is
-    # deliberately NOT prefixed here as "From: X <Y>" text, since that
-    # information is preserved structurally on reporter_name/
-    # reporter_email/contact_id and shown properly in the ticket detail
-    # page UI. Embedding it as unstructured text at the top of the body
-    # both duplicates that display and makes the description harder to
-    # read.
+    # conversation_id is stored so any FUTURE email in this same thread
+    # is detected as a reply (see _find_ticket_by_conversation above)
+    # rather than creating a duplicate ticket.
     ticket = Ticket(
         ticket_number=next_ticket_number(db),
         customer_id=customer.id if customer else None,
@@ -380,6 +471,7 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
         priority=TicketPriority.NORMAL,
         source=TicketSource.EMAIL,
         external_ref=graph_message_id,
+        conversation_id=conversation_id,
     )
     db.add(ticket)
     db.flush()
@@ -397,7 +489,10 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
     db.commit()
 
     # Outbound email is DISABLED BY DEFAULT (see module docstring) - only
-    # send anything if explicitly enabled via settings.
+    # send anything if explicitly enabled via settings. Note: the
+    # confirmation email's subject includes "[Ticket #{number}]" - this
+    # is what gives the customer's mail client a thread to reply within,
+    # which is what conversation_id-based reply detection relies on.
     if settings.HELPDESK_AUTO_REPLIES_ENABLED and effective_email:
         if auto_reply_rule:
             await _send_helpdesk_email(token, effective_email, auto_reply_rule.reply_subject, auto_reply_rule.reply_body)
@@ -440,7 +535,7 @@ async def poll_and_process_helpdesk_inbox(db: Session) -> dict:
         resp = await client.get(
             f"{GRAPH_BASE}/users/{settings.HELPDESK_MAILBOX_ADDRESS}/mailFolders/inbox/messages"
             f"?$filter=isRead eq false&$top=50"
-            f"&$select=id,subject,from,body,receivedDateTime",
+            f"&$select=id,subject,from,body,receivedDateTime,conversationId",
             headers={"Authorization": f"Bearer {token}"},
         )
         resp.raise_for_status()
