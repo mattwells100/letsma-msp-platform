@@ -102,19 +102,3 @@ def generate_monthly_invoices(year: int = Query(...), month: int = Query(...), d
         "results": results,
     }
 
-
-@router.delete("/invoices/{invoice_id}")
-def delete_invoice(invoice_id: str, db: Session = Depends(get_db)):
-    """
-    Discard a DRAFT invoice that has NOT been pushed to Xero. Refuses to
-    delete anything already synced to Xero (delete/void it in Xero
-    instead) so local and Xero records can never silently diverge.
-    """
-    invoice = db.query(models.Invoice).get(invoice_id)
-    if not invoice:
-        raise HTTPException(404, "Invoice not found")
-    if invoice.xero_invoice_id:
-        raise HTTPException(400, "Invoice already pushed to Xero - cannot discard here.")
-    db.delete(invoice)
-    db.commit()
-    return {"status": "ok", "deleted": invoice_id}
