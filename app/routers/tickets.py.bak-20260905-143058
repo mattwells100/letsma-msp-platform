@@ -143,19 +143,3 @@ def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Sessio
     db.commit()
     db.refresh(comment)
     return {"id": comment.id, "created_at": comment.created_at}
-
-
-@router.delete("/{ticket_id}")
-def delete_ticket(ticket_id: str, db: Session = Depends(get_db)):
-    """
-    Soft-delete a helpdesk ticket: stamps deleted_at so it is hidden from
-    all lists but preserved for audit/history (comments, time entries and
-    any email-ingestion links are all kept intact). Re-runnable.
-    """
-    ticket = db.query(models.Ticket).get(ticket_id)
-    if not ticket:
-        raise HTTPException(404, "Ticket not found")
-    if ticket.deleted_at is None:
-        ticket.deleted_at = datetime.utcnow()
-        db.commit()
-    return {"status": "ok", "deleted": ticket_id}

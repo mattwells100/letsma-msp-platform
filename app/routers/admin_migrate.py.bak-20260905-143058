@@ -377,12 +377,3 @@ def migrate_recurring_catalog_schema(db: Session = Depends(get_db), _=Depends(_c
         db.execute(text(stmt))
     db.commit()
     return {"status": "ok", "statements_run": len(statements)}
-
-
-@router.post("/migrate-ticket-soft-delete-schema")
-def migrate_ticket_soft_delete_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
-    """Adds tickets.deleted_at for soft-deleting helpdesk tickets while
-    preserving history. Safe to re-run."""
-    db.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"))
-    db.commit()
-    return {"status": "ok", "statements_run": 1}

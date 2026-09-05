@@ -138,7 +138,7 @@ def tickets_page(request: Request, unassigned_only: bool = False, db: Session = 
     if unassigned_only:
         query = query.filter(models.Ticket.customer_id.is_(None))
     tickets = query.order_by(models.Ticket.created_at.desc()).all()
-    unassigned_count = db.query(models.Ticket).filter(models.Ticket.customer_id.is_(None)).filter(models.Ticket.deleted_at.is_(None)).count()
+    unassigned_count = db.query(models.Ticket).filter(models.Ticket.customer_id.is_(None)).count()
     return templates.TemplateResponse("tickets.html", {
         "request": request, "tickets": tickets, "active_page": "tickets",
         "unassigned_only": unassigned_only, "unassigned_count": unassigned_count,
