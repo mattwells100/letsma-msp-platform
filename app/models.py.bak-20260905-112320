@@ -255,7 +255,6 @@ class TimeEntry(Base):
 
 class RecurringBillingItem(Base):
     __tablename__ = "recurring_billing_items"
-    catalog_item_id = Column(String, ForeignKey("recurring_billing_catalog.id", ondelete="SET NULL"), nullable=True, index=True)
 
     id = Column(String, primary_key=True)
 
@@ -576,19 +575,3 @@ price_term = Column(String, default="monthly")
 entered_sell_price = Column(Float, nullable=True)
 entered_cost_price = Column(Float, nullable=True)
 
-
-class RecurringBillingCatalogItem(Base):
-    __tablename__ = "recurring_billing_catalog"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=False)
-    supplier_name = Column(String, nullable=True)
-    billing_category = Column(String, nullable=False, default="SERVICE")
-    default_cost_price = Column(Numeric(12, 2), nullable=False, default=0)
-    default_sale_price = Column(Numeric(12, 2), nullable=False, default=0)
-    default_billing_frequency = Column(String, nullable=False, default="MONTHLY")
-    is_active = Column(Boolean, nullable=False, default=True)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

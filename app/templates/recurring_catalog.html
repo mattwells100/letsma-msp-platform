@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Recurring Billing Catalogue - Letsma MSP{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-1">
+    <h2 class="page-title mb-0">Recurring Billing Catalogue</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCatalogModal"><i class="bi bi-plus-lg"></i> Add Catalogue Item</button>
+</div>
+<div class="text-muted mb-4">Master list of recurring items (Adobe, Exclaimer, 123-reg domains, etc.). Assign these to customers from each customer's Recurring Billing page - the description and prices can be overridden per customer.</div>
+
+<div id="resultMsg" class="mb-3"></div>
+
+<div class="card stat-card p-3">
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Supplier</th>
+                <th>Category</th>
+                <th class="text-end">Default Cost</th>
+                <th class="text-end">Default Sell</th>
+                <th>Frequency</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in items %}
+            <tr>
+                <td>{{ item.name }}</td>
+                <td>{{ item.description }}</td>
+                <td>{{ item.supplier_name or '-' }}</td>
+                <td>{{ item.billing_category }}</td>
+                <td class="text-end">&pound;{{ '%.2f'|format(item.default_cost_price) }}</td>
+                <td class="text-end">&pound;{{ '%.2f'|format(item.default_sale_price) }}</td>
+                <td>{{ item.default_billing_frequency }}</td>
+                <td>
+                    {% if item.is_active %}
+                        <span class="badge bg-success">Active</span>
+                    {% else %}
+                        <span class="badge bg-secondary">Disabled</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="8" class="text-muted">No catalogue items yet. Click "Add Catalogue Item" to create one.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Add Catalogue Item Modal -->
+<div class="modal fade" id="addCatalogModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Catalogue Item</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="addCatalogForm" onsubmit="return addCatalogItem(event)">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Catalogue Name</label>
+                        <input type="text" class="form-control" name="name" placeholder="e.g. 123-reg .co.uk Domain Renewal" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Default Description</label>
+                        <input type="text" class="form-control" name="description" placeholder="e.g. .co.uk Domain Renewal" required>
+                        <div class="form-text">This is copied onto the customer and can be overridden (e.g. "rainsford.co.uk domain renewal").</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Supplier</label>
+                            <input type="text" class="form-control" name="supplier_name" placeholder="e.g. 123-reg">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Category</label>
+                            <select class="form-select" name="billing_category">
+                                <option value="SERVICE">Service</option>
+                                <option value="SOFTWARE">Software</option>
+                                <option value="DOMAIN">Domain</option>
+                                <option value="LICENCE">Licence</option>
+                                <option value="HARDWARE">Hardware</option>
+                                <option value="OTHER">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Default Cost (ex VAT)</label>
+                            <input type="number" step="0.01" class="form-control" name="default_cost_price" value="0" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Default Sell (ex VAT)</label>
+                            <input type="number" step="0.01" class="form-control" name="default_sale_price" value="0" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Frequency</label>
+                            <select class="form-select" name="default_billing_frequency">
+                                <option value="MONTHLY">Monthly</option>
+                                <option value="QUARTERLY">Quarterly</option>
+                                <option value="ANNUALLY">Annually</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes (optional)</label>
+                        <textarea class="form-control" name="notes" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save to Catalogue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+async function addCatalogItem(e) {
+    e.preventDefault();
+    const fd = new FormData(document.getElementById('addCatalogForm'));
+    const payload = {
+        name: fd.get('name'),
+        description: fd.get('description'),
+        supplier_name: fd.get('supplier_name') || null,
+        billing_category: fd.get('billing_category'),
+        default_cost_price: parseFloat(fd.get('default_cost_price')),
+        default_sale_price: parseFloat(fd.get('default_sale_price')),
+        default_billing_frequency: fd.get('default_billing_frequency'),
+        notes: fd.get('notes') || null
+    };
+    try {
+        const resp = await fetch('/api/recurring-catalog', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (resp.ok) {
+            window.location.reload();
+        } else {
+            const data = await resp.json();
+            document.getElementById('resultMsg').innerHTML =
+                `<div class="alert alert-danger py-2 mb-0">Failed to save: ${data.detail || JSON.stringify(data)}</div>`;
+        }
+    } catch (err) {
+        document.getElementById('resultMsg').innerHTML =
+            `<div class="alert alert-danger py-2 mb-0">Failed to save: ${err}</div>`;
+    }
+    return false;
+}
+</script>
+{% endblock %}

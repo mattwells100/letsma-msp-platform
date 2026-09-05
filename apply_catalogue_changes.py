@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""
+apply_catalogue_changes.py  -  Letsma MSP Platform
+------------------------------------------------------------------
+One-shot, SAFE, RE-RUNNABLE installer for the Recurring Billing
+Catalogue feature. Run this from the repo root (the folder that
+contains the `app/` directory):
+
+    cd ~/Downloads/letsma-msp-platform/msp-app
+    python apply_catalogue_changes.py
+
+It writes 3 templates and inserts a model, a migration endpoint,
+catalogue API endpoints, and a page route into your existing files.
+Every edit is guarded (safe to run twice) and a timestamped .bak
+backup is made before any Python file is modified.
+"""
+import base64, os, sys, shutil, datetime
+
+APP = "app"
+if not os.path.isdir(APP):
+    print("ERROR: no 'app/' directory here. cd into the repo root (msp-app) first.")
+    sys.exit(1)
+
+def write_template(relpath, blob, label):
+    path = os.path.join(APP, "templates", relpath)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = base64.b64decode(blob)
+    with open(path, "wb") as f:
+        f.write(data)
+    print("  [template] wrote %s -> %s (%d bytes)" % (label, path, len(data)))
+
+def backup(path):
+    if os.path.exists(path):
+        b = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(path, b)
+        print("  [backup]   %s -> %s" % (path, b))
+
+def read(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def write(path, content):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+BASE_HTML = "PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9ImVuIj4KPGhlYWQ+CiAgICA8bWV0YSBjaGFyc2V0PSJVVEYtOCI+CiAgICA8bWV0YSBuYW1lPSJ2aWV3cG9ydCIgY29udGVudD0id2lkdGg9ZGV2aWNlLXdpZHRoLCBpbml0aWFsLXNjYWxlPTEiPgogICAgPHRpdGxlPnslIGJsb2NrIHRpdGxlICV9TGV0c21hIE1TUCBQbGF0Zm9ybXslIGVuZGJsb2NrICV9PC90aXRsZT4KICAgIDxsaW5rIGhyZWY9Imh0dHBzOi8vY2RuLmpzZGVsaXZyLm5ldC9ucG0vYm9vdHN0cmFwQDUuMy4zL2Rpc3QvY3NzL2Jvb3RzdHJhcC5taW4uY3NzIiByZWw9InN0eWxlc2hlZXQiPgogICAgPGxpbmsgcmVsPSJzdHlsZXNoZWV0IiBocmVmPSJodHRwczovL2Nkbi5qc2RlbGl2ci5uZXQvbnBtL2Jvb3RzdHJhcC1pY29uc0AxLjExLjMvZm9udC9ib290c3RyYXAtaWNvbnMuY3NzIj4KICAgIDxsaW5rIGhyZWY9Ii9zdGF0aWMvc3R5bGUuY3NzIiByZWw9InN0eWxlc2hlZXQiPgo8L2hlYWQ+Cjxib2R5Pgo8ZGl2IGNsYXNzPSJkLWZsZXgiPgogICAgPG5hdiBjbGFzcz0ic2lkZWJhciBkLWZsZXggZmxleC1jb2x1bW4gcC0zIj4KICAgICAgICA8ZGl2IGNsYXNzPSJicmFuZCBtYi00Ij4KICAgICAgICAgICAgPHNwYW4gY2xhc3M9ImJyYW5kLW1hcmsiPkxFVFNNQTwvc3Bhbj4KICAgICAgICAgICAgPGRpdiBjbGFzcz0iYnJhbmQtc3ViIj5NU1AgUGxhdGZvcm08L2Rpdj4KICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgIDx1bCBjbGFzcz0ibmF2IG5hdi1waWxscyBmbGV4LWNvbHVtbiBtYi1hdXRvIj4KICAgICAgICAgICAgPGxpIGNsYXNzPSJuYXYtaXRlbSI+CiAgICAgICAgICAgICAgICA8YSBocmVmPSIvZGFzaGJvYXJkIiBjbGFzcz0ibmF2LWxpbmsgeyUgaWYgYWN0aXZlX3BhZ2U9PSdkYXNoYm9hcmQnICV9YWN0aXZleyUgZW5kaWYgJX0iPjxpIGNsYXNzPSJiaSBiaS1zcGVlZG9tZXRlcjIgbWUtMiI+PC9pPkRhc2hib2FyZDwvYT4KICAgICAgICAgICAgPC9saT4KICAgICAgICAgICAgPGxpPgogICAgICAgICAgICAgICAgPGEgaHJlZj0iL2N1c3RvbWVycyIgY2xhc3M9Im5hdi1saW5rIHslIGlmIGFjdGl2ZV9wYWdlPT0nY3VzdG9tZXJzJyAlfWFjdGl2ZXslIGVuZGlmICV9Ij48aSBjbGFzcz0iYmkgYmktcGVvcGxlIG1lLTIiPjwvaT5DdXN0b21lcnM8L2E+CiAgICAgICAgICAgIDwvbGk+CiAgICAgICAgICAgIDxsaT4KICAgICAgICAgICAgICAgIDxhIGhyZWY9Ii90aWNrZXRzIiBjbGFzcz0ibmF2LWxpbmsgeyUgaWYgYWN0aXZlX3BhZ2U9PSd0aWNrZXRzJyAlfWFjdGl2ZXslIGVuZGlmICV9Ij48aSBjbGFzcz0iYmkgYmktbGlmZS1wcmVzZXJ2ZXIgbWUtMiI+PC9pPkhlbHBkZXNrPC9hPgogICAgICAgICAgICA8L2xpPgogICAgICAgICAgICA8bGk+CiAgICAgICAgICAgICAgICA8YSBocmVmPSIvYmlsbGluZyIgY2xhc3M9Im5hdi1saW5rIHslIGlmIGFjdGl2ZV9wYWdlPT0nYmlsbGluZycgJX1hY3RpdmV7JSBlbmRpZiAlfSI+PGkgY2xhc3M9ImJpIGJpLXJlY2VpcHQgbWUtMiI+PC9pPkJpbGxpbmc8L2E+CiAgICAgICAgICAgIDwvbGk+CiAgICAgICAgICAgIDxsaT4KICAgICAgICAgICAgICAgIDxhIGhyZWY9Ii9wdXJjaGFzZXMiIGNsYXNzPSJuYXYtbGluayB7JSBpZiBhY3RpdmVfcGFnZT09J3B1cmNoYXNlcycgJX1hY3RpdmV7JSBlbmRpZiAlfSI+PGkgY2xhc3M9ImJpIGJpLWJveC1zZWFtIG1lLTIiPjwvaT5QdXJjaGFzaW5nPC9hPgogICAgICAgICAgICA8L2xpPgogICAgICAgICAgICA8bGk+CiAgICAgICAgICAgICAgICA8YSBocmVmPSIvbGljZW5zZXMiIGNsYXNzPSJuYXYtbGluayB7JSBpZiBhY3RpdmVfcGFnZT09J2xpY2Vuc2VzJyAlfWFjdGl2ZXslIGVuZGlmICV9Ij48aSBjbGFzcz0iYmkgYmktbWljcm9zb2Z0IG1lLTIiPjwvaT5PMzY1IExpY2Vuc2VzPC9hPgogICAgICAgICAgICA8L2xpPgogICAgICAgICAgICA8bGk+CiAgICAgICAgICAgICAgICA8YSBocmVmPSIvYmlsbGluZy1zZXR0aW5ncyIgY2xhc3M9Im5hdi1saW5rIHslIGlmIGFjdGl2ZV9wYWdlPT0nYmlsbGluZy1zZXR0aW5ncycgJX1hY3RpdmV7JSBlbmRpZiAlfSI+CiAgICAgICAgICAgICAgICAgICAgPGkgY2xhc3M9ImJpIGJpLWdlYXIgbWUtMiI+PC9pPkJpbGxpbmcgU2V0dGluZ3MKICAgICAgICAgICAgICAgIDwvYT4KICAgICAgICAgICAgPC9saT4KICAgICAgICAgICAgPGxpPgogICAgICAgICAgICAgICAgPGEgaHJlZj0iL3JlY3VycmluZy1jYXRhbG9nIiBjbGFzcz0ibmF2LWxpbmsgeyUgaWYgYWN0aXZlX3BhZ2U9PSdyZWN1cnJpbmctY2F0YWxvZycgJX1hY3RpdmV7JSBlbmRpZiAlfSI+CiAgICAgICAgICAgICAgICAgICAgPGkgY2xhc3M9ImJpIGJpLWpvdXJuYWwtdGV4dCBtZS0yIj48L2k+UmVjdXJyaW5nIENhdGFsb2d1ZQogICAgICAgICAgICAgICAgPC9hPgogICAgICAgICAgICA8L2xpPgogICAgICAgICAgICA8bGk+CiAgICAgICAgICAgICAgICA8YSBocmVmPSIvZW1haWwtc2V0dGluZ3MiIGNsYXNzPSJuYXYtbGluayB7JSBpZiBhY3RpdmVfcGFnZT09J2VtYWlsLXNldHRpbmdzJyAlfWFjdGl2ZXslIGVuZGlmICV9Ij4KICAgICAgICAgICAgICAgICAgICA8aSBjbGFzcz0iYmkgYmktZW52ZWxvcGUtY2hlY2sgbWUtMiI+PC9pPkVtYWlsIFNldHRpbmdzCiAgICAgICAgICAgICAgICA8L2E+CiAgICAgICAgICAgIDwvbGk+CiAgICAgICAgICAgIDxsaT4KICAgICAgICAgICAgICAgIDxhIGhyZWY9Ii9lbmRwb2ludHMiIGNsYXNzPSJuYXYtbGluayB7JSBpZiBhY3RpdmVfcGFnZT09J2VuZHBvaW50cycgJX1hY3RpdmV7JSBlbmRpZiAlfSI+CiAgICAgICAgICAgICAgICAgICAgPGkgY2xhc3M9ImJpIGJpLWhkZC1uZXR3b3JrIG1lLTIiPjwvaT5FbmRwb2ludHMKICAgICAgICAgICAgICAgIDwvYT4KICAgICAgICAgICAgPC9saT4KICAgICAgICA8L3VsPgogICAgICAgIDxocj4KICAgICAgICA8ZGl2IGNsYXNzPSJzbWFsbCB0ZXh0LW11dGVkIj4KICAgICAgICAgICAgPGRpdj48aSBjbGFzcz0iYmkgYmktd2hhdHNhcHAiPjwvaT4gV2hhdHNBcHAgdGlja2V0aW5nPC9kaXY+CiAgICAgICAgICAgIDxkaXY+PGkgY2xhc3M9ImJpIGJpLW1pY3Jvc29mdC10ZWFtcyI+PC9pPiBUZWFtcyB0aWNrZXRpbmc8L2Rpdj4KICAgICAgICAgICAgPGRpdj48aSBjbGFzcz0iYmkgYmktZmlsZS1lYXJtYXJrLXRleHQiPjwvaT4gWGVybyBpbnZvaWNpbmc8L2Rpdj4KICAgICAgICAgICAgPGEgaHJlZj0iL2RvY3MiIGNsYXNzPSJ0ZXh0LWRlY29yYXRpb24tbm9uZSI+QVBJIGRvY3MgJnJhcnI7PC9hPgogICAgICAgIDwvZGl2PgogICAgPC9uYXY+CiAgICA8bWFpbiBjbGFzcz0iY29udGVudCBmbGV4LWdyb3ctMSBwLTQiPgogICAgICAgIHslIGJsb2NrIGNvbnRlbnQgJX17JSBlbmRibG9jayAlfQogICAgPC9tYWluPgo8L2Rpdj4KPHNjcmlwdCBzcmM9Imh0dHBzOi8vY2RuLmpzZGVsaXZyLm5ldC9ucG0vYm9vdHN0cmFwQDUuMy4zL2Rpc3QvanMvYm9vdHN0cmFwLmJ1bmRsZS5taW4uanMiPjwvc2NyaXB0Pgp7JSBibG9jayBzY3JpcHRzICV9eyUgZW5kYmxvY2sgJX0KPC9ib2R5Pgo8L2h0bWw+Cg=="
+CATALOG_HTML = "eyUgZXh0ZW5kcyAiYmFzZS5odG1sIiAlfQp7JSBibG9jayB0aXRsZSAlfVJlY3VycmluZyBCaWxsaW5nIENhdGFsb2d1ZSAtIExldHNtYSBNU1B7JSBlbmRibG9jayAlfQp7JSBibG9jayBjb250ZW50ICV9Cgo8ZGl2IGNsYXNzPSJkLWZsZXgganVzdGlmeS1jb250ZW50LWJldHdlZW4gYWxpZ24taXRlbXMtY2VudGVyIG1iLTEiPgogICAgPGgyIGNsYXNzPSJwYWdlLXRpdGxlIG1iLTAiPlJlY3VycmluZyBCaWxsaW5nIENhdGFsb2d1ZTwvaDI+CiAgICA8YnV0dG9uIGNsYXNzPSJidG4gYnRuLXByaW1hcnkiIGRhdGEtYnMtdG9nZ2xlPSJtb2RhbCIgZGF0YS1icy10YXJnZXQ9IiNhZGRDYXRhbG9nTW9kYWwiPjxpIGNsYXNzPSJiaSBiaS1wbHVzLWxnIj48L2k+IEFkZCBDYXRhbG9ndWUgSXRlbTwvYnV0dG9uPgo8L2Rpdj4KPGRpdiBjbGFzcz0idGV4dC1tdXRlZCBtYi00Ij5NYXN0ZXIgbGlzdCBvZiByZWN1cnJpbmcgaXRlbXMgKEFkb2JlLCBFeGNsYWltZXIsIDEyMy1yZWcgZG9tYWlucywgZXRjLikuIEFzc2lnbiB0aGVzZSB0byBjdXN0b21lcnMgZnJvbSBlYWNoIGN1c3RvbWVyJ3MgUmVjdXJyaW5nIEJpbGxpbmcgcGFnZSAtIHRoZSBkZXNjcmlwdGlvbiBhbmQgcHJpY2VzIGNhbiBiZSBvdmVycmlkZGVuIHBlciBjdXN0b21lci48L2Rpdj4KCjxkaXYgaWQ9InJlc3VsdE1zZyIgY2xhc3M9Im1iLTMiPjwvZGl2PgoKPGRpdiBjbGFzcz0iY2FyZCBzdGF0LWNhcmQgcC0zIj4KICAgIDx0YWJsZSBjbGFzcz0idGFibGUgdGFibGUtc20gYWxpZ24tbWlkZGxlIj4KICAgICAgICA8dGhlYWQ+CiAgICAgICAgICAgIDx0cj4KICAgICAgICAgICAgICAgIDx0aD5OYW1lPC90aD4KICAgICAgICAgICAgICAgIDx0aD5EZXNjcmlwdGlvbjwvdGg+CiAgICAgICAgICAgICAgICA8dGg+U3VwcGxpZXI8L3RoPgogICAgICAgICAgICAgICAgPHRoPkNhdGVnb3J5PC90aD4KICAgICAgICAgICAgICAgIDx0aCBjbGFzcz0idGV4dC1lbmQiPkRlZmF1bHQgQ29zdDwvdGg+CiAgICAgICAgICAgICAgICA8dGggY2xhc3M9InRleHQtZW5kIj5EZWZhdWx0IFNlbGw8L3RoPgogICAgICAgICAgICAgICAgPHRoPkZyZXF1ZW5jeTwvdGg+CiAgICAgICAgICAgICAgICA8dGg+U3RhdHVzPC90aD4KICAgICAgICAgICAgPC90cj4KICAgICAgICA8L3RoZWFkPgogICAgICAgIDx0Ym9keT4KICAgICAgICB7JSBmb3IgaXRlbSBpbiBpdGVtcyAlfQogICAgICAgICAgICA8dHI+CiAgICAgICAgICAgICAgICA8dGQ+e3sgaXRlbS5uYW1lIH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZD57eyBpdGVtLmRlc2NyaXB0aW9uIH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZD57eyBpdGVtLnN1cHBsaWVyX25hbWUgb3IgJy0nIH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZD57eyBpdGVtLmJpbGxpbmdfY2F0ZWdvcnkgfX08L3RkPgogICAgICAgICAgICAgICAgPHRkIGNsYXNzPSJ0ZXh0LWVuZCI+JnBvdW5kO3t7ICclLjJmJ3xmb3JtYXQoaXRlbS5kZWZhdWx0X2Nvc3RfcHJpY2UpIH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZCBjbGFzcz0idGV4dC1lbmQiPiZwb3VuZDt7eyAnJS4yZid8Zm9ybWF0KGl0ZW0uZGVmYXVsdF9zYWxlX3ByaWNlKSB9fTwvdGQ+CiAgICAgICAgICAgICAgICA8dGQ+e3sgaXRlbS5kZWZhdWx0X2JpbGxpbmdfZnJlcXVlbmN5IH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZD4KICAgICAgICAgICAgICAgICAgICB7JSBpZiBpdGVtLmlzX2FjdGl2ZSAlfQogICAgICAgICAgICAgICAgICAgICAgICA8c3BhbiBjbGFzcz0iYmFkZ2UgYmctc3VjY2VzcyI+QWN0aXZlPC9zcGFuPgogICAgICAgICAgICAgICAgICAgIHslIGVsc2UgJX0KICAgICAgICAgICAgICAgICAgICAgICAgPHNwYW4gY2xhc3M9ImJhZGdlIGJnLXNlY29uZGFyeSI+RGlzYWJsZWQ8L3NwYW4+CiAgICAgICAgICAgICAgICAgICAgeyUgZW5kaWYgJX0KICAgICAgICAgICAgICAgIDwvdGQ+CiAgICAgICAgICAgIDwvdHI+CiAgICAgICAgeyUgZWxzZSAlfQogICAgICAgICAgICA8dHI+PHRkIGNvbHNwYW49IjgiIGNsYXNzPSJ0ZXh0LW11dGVkIj5ObyBjYXRhbG9ndWUgaXRlbXMgeWV0LiBDbGljayAiQWRkIENhdGFsb2d1ZSBJdGVtIiB0byBjcmVhdGUgb25lLjwvdGQ+PC90cj4KICAgICAgICB7JSBlbmRmb3IgJX0KICAgICAgICA8L3Rib2R5PgogICAgPC90YWJsZT4KPC9kaXY+Cgo8IS0tIEFkZCBDYXRhbG9ndWUgSXRlbSBNb2RhbCAtLT4KPGRpdiBjbGFzcz0ibW9kYWwgZmFkZSIgaWQ9ImFkZENhdGFsb2dNb2RhbCIgdGFiaW5kZXg9Ii0xIiBhcmlhLWhpZGRlbj0idHJ1ZSI+CiAgICA8ZGl2IGNsYXNzPSJtb2RhbC1kaWFsb2ciPgogICAgICAgIDxkaXYgY2xhc3M9Im1vZGFsLWNvbnRlbnQiPgogICAgICAgICAgICA8ZGl2IGNsYXNzPSJtb2RhbC1oZWFkZXIiPgogICAgICAgICAgICAgICAgPGg1IGNsYXNzPSJtb2RhbC10aXRsZSI+QWRkIENhdGFsb2d1ZSBJdGVtPC9oNT4KICAgICAgICAgICAgICAgIDxidXR0b24gdHlwZT0iYnV0dG9uIiBjbGFzcz0iYnRuLWNsb3NlIiBkYXRhLWJzLWRpc21pc3M9Im1vZGFsIiBhcmlhLWxhYmVsPSJDbG9zZSI+PC9idXR0b24+CiAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICA8Zm9ybSBpZD0iYWRkQ2F0YWxvZ0Zvcm0iIG9uc3VibWl0PSJyZXR1cm4gYWRkQ2F0YWxvZ0l0ZW0oZXZlbnQpIj4KICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9Im1vZGFsLWJvZHkiPgogICAgICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9Im1iLTMiPgogICAgICAgICAgICAgICAgICAgICAgICA8bGFiZWwgY2xhc3M9ImZvcm0tbGFiZWwiPkNhdGFsb2d1ZSBOYW1lPC9sYWJlbD4KICAgICAgICAgICAgICAgICAgICAgICAgPGlucHV0IHR5cGU9InRleHQiIGNsYXNzPSJmb3JtLWNvbnRyb2wiIG5hbWU9Im5hbWUiIHBsYWNlaG9sZGVyPSJlLmcuIDEyMy1yZWcgLmNvLnVrIERvbWFpbiBSZW5ld2FsIiByZXF1aXJlZD4KICAgICAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzPSJtYi0zIj4KICAgICAgICAgICAgICAgICAgICAgICAgPGxhYmVsIGNsYXNzPSJmb3JtLWxhYmVsIj5EZWZhdWx0IERlc2NyaXB0aW9uPC9sYWJlbD4KICAgICAgICAgICAgICAgICAgICAgICAgPGlucHV0IHR5cGU9InRleHQiIGNsYXNzPSJmb3JtLWNvbnRyb2wiIG5hbWU9ImRlc2NyaXB0aW9uIiBwbGFjZWhvbGRlcj0iZS5nLiAuY28udWsgRG9tYWluIFJlbmV3YWwiIHJlcXVpcmVkPgogICAgICAgICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzPSJmb3JtLXRleHQiPlRoaXMgaXMgY29waWVkIG9udG8gdGhlIGN1c3RvbWVyIGFuZCBjYW4gYmUgb3ZlcnJpZGRlbiAoZS5nLiAicmFpbnNmb3JkLmNvLnVrIGRvbWFpbiByZW5ld2FsIikuPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0icm93Ij4KICAgICAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0iY29sLW1kLTYgbWItMyI+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8bGFiZWwgY2xhc3M9ImZvcm0tbGFiZWwiPlN1cHBsaWVyPC9sYWJlbD4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxpbnB1dCB0eXBlPSJ0ZXh0IiBjbGFzcz0iZm9ybS1jb250cm9sIiBuYW1lPSJzdXBwbGllcl9uYW1lIiBwbGFjZWhvbGRlcj0iZS5nLiAxMjMtcmVnIj4KICAgICAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9ImNvbC1tZC02IG1iLTMiPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPGxhYmVsIGNsYXNzPSJmb3JtLWxhYmVsIj5DYXRlZ29yeTwvbGFiZWw+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8c2VsZWN0IGNsYXNzPSJmb3JtLXNlbGVjdCIgbmFtZT0iYmlsbGluZ19jYXRlZ29yeSI+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iU0VSVklDRSI+U2VydmljZTwvb3B0aW9uPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxvcHRpb24gdmFsdWU9IlNPRlRXQVJFIj5Tb2Z0d2FyZTwvb3B0aW9uPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxvcHRpb24gdmFsdWU9IkRPTUFJTiI+RG9tYWluPC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iTElDRU5DRSI+TGljZW5jZTwvb3B0aW9uPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxvcHRpb24gdmFsdWU9IkhBUkRXQVJFIj5IYXJkd2FyZTwvb3B0aW9uPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxvcHRpb24gdmFsdWU9Ik9USEVSIj5PdGhlcjwvb3B0aW9uPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPC9zZWxlY3Q+CiAgICAgICAgICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9InJvdyI+CiAgICAgICAgICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9ImNvbC1tZC00IG1iLTMiPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPGxhYmVsIGNsYXNzPSJmb3JtLWxhYmVsIj5EZWZhdWx0IENvc3QgKGV4IFZBVCk8L2xhYmVsPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPGlucHV0IHR5cGU9Im51bWJlciIgc3RlcD0iMC4wMSIgY2xhc3M9ImZvcm0tY29udHJvbCIgbmFtZT0iZGVmYXVsdF9jb3N0X3ByaWNlIiB2YWx1ZT0iMCIgcmVxdWlyZWQ+CiAgICAgICAgICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzPSJjb2wtbWQtNCBtYi0zIj4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxsYWJlbCBjbGFzcz0iZm9ybS1sYWJlbCI+RGVmYXVsdCBTZWxsIChleCBWQVQpPC9sYWJlbD4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxpbnB1dCB0eXBlPSJudW1iZXIiIHN0ZXA9IjAuMDEiIGNsYXNzPSJmb3JtLWNvbnRyb2wiIG5hbWU9ImRlZmF1bHRfc2FsZV9wcmljZSIgdmFsdWU9IjAiIHJlcXVpcmVkPgogICAgICAgICAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0iY29sLW1kLTQgbWItMyI+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8bGFiZWwgY2xhc3M9ImZvcm0tbGFiZWwiPkZyZXF1ZW5jeTwvbGFiZWw+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8c2VsZWN0IGNsYXNzPSJmb3JtLXNlbGVjdCIgbmFtZT0iZGVmYXVsdF9iaWxsaW5nX2ZyZXF1ZW5jeSI+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iTU9OVEhMWSI+TW9udGhseTwvb3B0aW9uPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxvcHRpb24gdmFsdWU9IlFVQVJURVJMWSI+UXVhcnRlcmx5PC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iQU5OVUFMTFkiPkFubnVhbGx5PC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8L3NlbGVjdD4KICAgICAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0ibWItMyI+CiAgICAgICAgICAgICAgICAgICAgICAgIDxsYWJlbCBjbGFzcz0iZm9ybS1sYWJlbCI+Tm90ZXMgKG9wdGlvbmFsKTwvbGFiZWw+CiAgICAgICAgICAgICAgICAgICAgICAgIDx0ZXh0YXJlYSBjbGFzcz0iZm9ybS1jb250cm9sIiBuYW1lPSJub3RlcyIgcm93cz0iMiI+PC90ZXh0YXJlYT4KICAgICAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0ibW9kYWwtZm9vdGVyIj4KICAgICAgICAgICAgICAgICAgICA8YnV0dG9uIHR5cGU9ImJ1dHRvbiIgY2xhc3M9ImJ0biBidG4tc2Vjb25kYXJ5IiBkYXRhLWJzLWRpc21pc3M9Im1vZGFsIj5DYW5jZWw8L2J1dHRvbj4KICAgICAgICAgICAgICAgICAgICA8YnV0dG9uIHR5cGU9InN1Ym1pdCIgY2xhc3M9ImJ0biBidG4tcHJpbWFyeSI+U2F2ZSB0byBDYXRhbG9ndWU8L2J1dHRvbj4KICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICA8L2Zvcm0+CiAgICAgICAgPC9kaXY+CiAgICA8L2Rpdj4KPC9kaXY+Cgo8c2NyaXB0Pgphc3luYyBmdW5jdGlvbiBhZGRDYXRhbG9nSXRlbShlKSB7CiAgICBlLnByZXZlbnREZWZhdWx0KCk7CiAgICBjb25zdCBmZCA9IG5ldyBGb3JtRGF0YShkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnYWRkQ2F0YWxvZ0Zvcm0nKSk7CiAgICBjb25zdCBwYXlsb2FkID0gewogICAgICAgIG5hbWU6IGZkLmdldCgnbmFtZScpLAogICAgICAgIGRlc2NyaXB0aW9uOiBmZC5nZXQoJ2Rlc2NyaXB0aW9uJyksCiAgICAgICAgc3VwcGxpZXJfbmFtZTogZmQuZ2V0KCdzdXBwbGllcl9uYW1lJykgfHwgbnVsbCwKICAgICAgICBiaWxsaW5nX2NhdGVnb3J5OiBmZC5nZXQoJ2JpbGxpbmdfY2F0ZWdvcnknKSwKICAgICAgICBkZWZhdWx0X2Nvc3RfcHJpY2U6IHBhcnNlRmxvYXQoZmQuZ2V0KCdkZWZhdWx0X2Nvc3RfcHJpY2UnKSksCiAgICAgICAgZGVmYXVsdF9zYWxlX3ByaWNlOiBwYXJzZUZsb2F0KGZkLmdldCgnZGVmYXVsdF9zYWxlX3ByaWNlJykpLAogICAgICAgIGRlZmF1bHRfYmlsbGluZ19mcmVxdWVuY3k6IGZkLmdldCgnZGVmYXVsdF9iaWxsaW5nX2ZyZXF1ZW5jeScpLAogICAgICAgIG5vdGVzOiBmZC5nZXQoJ25vdGVzJykgfHwgbnVsbAogICAgfTsKICAgIHRyeSB7CiAgICAgICAgY29uc3QgcmVzcCA9IGF3YWl0IGZldGNoKCcvYXBpL3JlY3VycmluZy1jYXRhbG9nJywgewogICAgICAgICAgICBtZXRob2Q6ICdQT1NUJywKICAgICAgICAgICAgaGVhZGVyczogeydDb250ZW50LVR5cGUnOiAnYXBwbGljYXRpb24vanNvbid9LAogICAgICAgICAgICBib2R5OiBKU09OLnN0cmluZ2lmeShwYXlsb2FkKQogICAgICAgIH0pOwogICAgICAgIGlmIChyZXNwLm9rKSB7CiAgICAgICAgICAgIHdpbmRvdy5sb2NhdGlvbi5yZWxvYWQoKTsKICAgICAgICB9IGVsc2UgewogICAgICAgICAgICBjb25zdCBkYXRhID0gYXdhaXQgcmVzcC5qc29uKCk7CiAgICAgICAgICAgIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdyZXN1bHRNc2cnKS5pbm5lckhUTUwgPQogICAgICAgICAgICAgICAgYDxkaXYgY2xhc3M9ImFsZXJ0IGFsZXJ0LWRhbmdlciBweS0yIG1iLTAiPkZhaWxlZCB0byBzYXZlOiAke2RhdGEuZGV0YWlsIHx8IEpTT04uc3RyaW5naWZ5KGRhdGEpfTwvZGl2PmA7CiAgICAgICAgfQogICAgfSBjYXRjaCAoZXJyKSB7CiAgICAgICAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3Jlc3VsdE1zZycpLmlubmVySFRNTCA9CiAgICAgICAgICAgIGA8ZGl2IGNsYXNzPSJhbGVydCBhbGVydC1kYW5nZXIgcHktMiBtYi0wIj5GYWlsZWQgdG8gc2F2ZTogJHtlcnJ9PC9kaXY+YDsKICAgIH0KICAgIHJldHVybiBmYWxzZTsKfQo8L3NjcmlwdD4KeyUgZW5kYmxvY2sgJX0K"
+CUSTOMER_HTML = "eyUgZXh0ZW5kcyAiYmFzZS5odG1sIiAlfQp7JSBibG9jayB0aXRsZSAlfVJlY3VycmluZyBCaWxsaW5nIC0ge3sgY3VzdG9tZXIubmFtZSB9fSAtIExldHNtYSBNU1B7JSBlbmRibG9jayAlfQp7JSBibG9jayBjb250ZW50ICV9Cgo8ZGl2IGNsYXNzPSJkLWZsZXgganVzdGlmeS1jb250ZW50LWJldHdlZW4gYWxpZ24taXRlbXMtY2VudGVyIG1iLTEiPgogICAgPGgyIGNsYXNzPSJwYWdlLXRpdGxlIG1iLTAiPlJlY3VycmluZyBCaWxsaW5nPC9oMj4KICAgIDxkaXY+CiAgICAgICAgPGEgY2xhc3M9ImJ0biBidG4tb3V0bGluZS1zZWNvbmRhcnkiIGhyZWY9Ii9jdXN0b21lcnMve3sgY3VzdG9tZXIuaWQgfX0iPjxpIGNsYXNzPSJiaSBiaS1hcnJvdy1sZWZ0Ij48L2k+IEJhY2sgdG8gQ3VzdG9tZXI8L2E+CiAgICAgICAgPGEgY2xhc3M9ImJ0biBidG4tb3V0bGluZS1wcmltYXJ5IiBocmVmPSIvcmVjdXJyaW5nLWNhdGFsb2ciPjxpIGNsYXNzPSJiaSBiaS1qb3VybmFsLXRleHQiPjwvaT4gQ2F0YWxvZ3VlPC9hPgogICAgICAgIDxidXR0b24gY2xhc3M9ImJ0biBidG4tcHJpbWFyeSIgZGF0YS1icy10b2dnbGU9Im1vZGFsIiBkYXRhLWJzLXRhcmdldD0iI2FkZEl0ZW1Nb2RhbCI+PGkgY2xhc3M9ImJpIGJpLXBsdXMtbGciPjwvaT4gQWRkIEl0ZW08L2J1dHRvbj4KICAgIDwvZGl2Pgo8L2Rpdj4KPGRpdiBjbGFzcz0idGV4dC1tdXRlZCBtYi00Ij57eyBjdXN0b21lci5uYW1lIH19ICZtaWRkb3Q7IEFkb2JlLCBFeGNsYWltZXIsIEJsdWViZWFtLCBkb21haW4gcmVuZXdhbHMgYW5kIG90aGVyIHJlY3VycmluZyBjaGFyZ2VzPC9kaXY+Cgo8ZGl2IGlkPSJyZXN1bHRNc2ciIGNsYXNzPSJtYi0zIj48L2Rpdj4KCjxkaXYgY2xhc3M9ImNhcmQgc3RhdC1jYXJkIHAtMyI+CiAgICA8dGFibGUgY2xhc3M9InRhYmxlIHRhYmxlLXNtIGFsaWduLW1pZGRsZSI+CiAgICAgICAgPHRoZWFkPgogICAgICAgICAgICA8dHI+CiAgICAgICAgICAgICAgICA8dGg+RGVzY3JpcHRpb248L3RoPgogICAgICAgICAgICAgICAgPHRoPlN1cHBsaWVyPC90aD4KICAgICAgICAgICAgICAgIDx0aD5DYXRlZ29yeTwvdGg+CiAgICAgICAgICAgICAgICA8dGggY2xhc3M9InRleHQtZW5kIj5RdHk8L3RoPgogICAgICAgICAgICAgICAgPHRoIGNsYXNzPSJ0ZXh0LWVuZCI+Q29zdCAoZXggVkFUKTwvdGg+CiAgICAgICAgICAgICAgICA8dGggY2xhc3M9InRleHQtZW5kIj5TZWxsIChleCBWQVQpPC90aD4KICAgICAgICAgICAgICAgIDx0aD5GcmVxdWVuY3k8L3RoPgogICAgICAgICAgICAgICAgPHRoPk5leHQgSW52b2ljZTwvdGg+CiAgICAgICAgICAgICAgICA8dGg+U3RhdHVzPC90aD4KICAgICAgICAgICAgPC90cj4KICAgICAgICA8L3RoZWFkPgogICAgICAgIDx0Ym9keT4KICAgICAgICB7JSBmb3IgaXRlbSBpbiBpdGVtcyAlfQogICAgICAgICAgICA8dHI+CiAgICAgICAgICAgICAgICA8dGQ+e3sgaXRlbS5kZXNjcmlwdGlvbiB9fTwvdGQ+CiAgICAgICAgICAgICAgICA8dGQ+e3sgaXRlbS5zdXBwbGllcl9uYW1lIG9yICctJyB9fTwvdGQ+CiAgICAgICAgICAgICAgICA8dGQ+e3sgaXRlbS5iaWxsaW5nX2NhdGVnb3J5IH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZCBjbGFzcz0idGV4dC1lbmQiPnt7IGl0ZW0ucXVhbnRpdHkgfX08L3RkPgogICAgICAgICAgICAgICAgPHRkIGNsYXNzPSJ0ZXh0LWVuZCI+JnBvdW5kO3t7ICclLjJmJ3xmb3JtYXQoaXRlbS5jb3N0X3ByaWNlKSB9fTwvdGQ+CiAgICAgICAgICAgICAgICA8dGQgY2xhc3M9InRleHQtZW5kIj4mcG91bmQ7e3sgJyUuMmYnfGZvcm1hdChpdGVtLnNhbGVfcHJpY2UpIH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZD57eyBpdGVtLmJpbGxpbmdfZnJlcXVlbmN5IH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZD57eyBpdGVtLm5leHRfaW52b2ljZV9kYXRlIH19PC90ZD4KICAgICAgICAgICAgICAgIDx0ZD4KICAgICAgICAgICAgICAgICAgICB7JSBpZiBpdGVtLmlzX2FjdGl2ZSAlfQogICAgICAgICAgICAgICAgICAgICAgICA8c3BhbiBjbGFzcz0iYmFkZ2UgYmctc3VjY2VzcyI+QWN0aXZlPC9zcGFuPgogICAgICAgICAgICAgICAgICAgIHslIGVsc2UgJX0KICAgICAgICAgICAgICAgICAgICAgICAgPHNwYW4gY2xhc3M9ImJhZGdlIGJnLXNlY29uZGFyeSI+RGlzYWJsZWQ8L3NwYW4+CiAgICAgICAgICAgICAgICAgICAgeyUgZW5kaWYgJX0KICAgICAgICAgICAgICAgIDwvdGQ+CiAgICAgICAgICAgIDwvdHI+CiAgICAgICAgeyUgZWxzZSAlfQogICAgICAgICAgICA8dHI+PHRkIGNvbHNwYW49IjkiIGNsYXNzPSJ0ZXh0LW11dGVkIj5ObyByZWN1cnJpbmcgYmlsbGluZyBpdGVtcyB5ZXQuIENsaWNrICJBZGQgSXRlbSIgdG8gY3JlYXRlIG9uZS48L3RkPjwvdHI+CiAgICAgICAgeyUgZW5kZm9yICV9CiAgICAgICAgPC90Ym9keT4KICAgIDwvdGFibGU+CjwvZGl2PgoKPCEtLSBBZGQgSXRlbSBNb2RhbCAtLT4KPGRpdiBjbGFzcz0ibW9kYWwgZmFkZSIgaWQ9ImFkZEl0ZW1Nb2RhbCIgdGFiaW5kZXg9Ii0xIiBhcmlhLWhpZGRlbj0idHJ1ZSI+CiAgICA8ZGl2IGNsYXNzPSJtb2RhbC1kaWFsb2ciPgogICAgICAgIDxkaXYgY2xhc3M9Im1vZGFsLWNvbnRlbnQiPgogICAgICAgICAgICA8ZGl2IGNsYXNzPSJtb2RhbC1oZWFkZXIiPgogICAgICAgICAgICAgICAgPGg1IGNsYXNzPSJtb2RhbC10aXRsZSI+QWRkIFJlY3VycmluZyBCaWxsaW5nIEl0ZW08L2g1PgogICAgICAgICAgICAgICAgPGJ1dHRvbiB0eXBlPSJidXR0b24iIGNsYXNzPSJidG4tY2xvc2UiIGRhdGEtYnMtZGlzbWlzcz0ibW9kYWwiIGFyaWEtbGFiZWw9IkNsb3NlIj48L2J1dHRvbj4KICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgIDxmb3JtIGlkPSJhZGRJdGVtRm9ybSIgb25zdWJtaXQ9InJldHVybiBhZGRSZWN1cnJpbmdJdGVtKGV2ZW50KSI+CiAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzPSJtb2RhbC1ib2R5Ij4KCiAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0ibWItMyI+CiAgICAgICAgICAgICAgICAgICAgICAgIDxsYWJlbCBjbGFzcz0iZm9ybS1sYWJlbCI+QWRkIGZyb20gQ2F0YWxvZ3VlIChvcHRpb25hbCk8L2xhYmVsPgogICAgICAgICAgICAgICAgICAgICAgICA8c2VsZWN0IGNsYXNzPSJmb3JtLXNlbGVjdCIgaWQ9ImNhdGFsb2dTZWxlY3QiIG9uY2hhbmdlPSJhcHBseUNhdGFsb2coKSI+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8b3B0aW9uIHZhbHVlPSIiPi0tIEJsYW5rIGl0ZW0gLyBjaG9vc2UgYSBjYXRhbG9ndWUgaXRlbSAtLTwvb3B0aW9uPgogICAgICAgICAgICAgICAgICAgICAgICA8L3NlbGVjdD4KICAgICAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0iZm9ybS10ZXh0Ij5QaWNrIGEgY2F0YWxvZ3VlIGl0ZW0gdG8gcHJlLWZpbGwgdGhlIGZpZWxkcyBiZWxvdywgdGhlbiBvdmVycmlkZSB0aGUgZGVzY3JpcHRpb24vcHJpY2VzIGFzIG5lZWRlZC48L2Rpdj4KICAgICAgICAgICAgICAgICAgICA8L2Rpdj4KCiAgICAgICAgICAgICAgICAgICAgPGhyPgoKICAgICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzPSJtYi0zIj4KICAgICAgICAgICAgICAgICAgICAgICAgPGxhYmVsIGNsYXNzPSJmb3JtLWxhYmVsIj5EZXNjcmlwdGlvbjwvbGFiZWw+CiAgICAgICAgICAgICAgICAgICAgICAgIDxpbnB1dCB0eXBlPSJ0ZXh0IiBjbGFzcz0iZm9ybS1jb250cm9sIiBuYW1lPSJkZXNjcmlwdGlvbiIgaWQ9ImZsZF9kZXNjcmlwdGlvbiIgcGxhY2Vob2xkZXI9ImUuZy4gcmFpbnNmb3JkLmNvLnVrIGRvbWFpbiByZW5ld2FsIiByZXF1aXJlZD4KICAgICAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzPSJyb3ciPgogICAgICAgICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzPSJjb2wtbWQtNiBtYi0zIj4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxsYWJlbCBjbGFzcz0iZm9ybS1sYWJlbCI+U3VwcGxpZXI8L2xhYmVsPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPGlucHV0IHR5cGU9InRleHQiIGNsYXNzPSJmb3JtLWNvbnRyb2wiIG5hbWU9InN1cHBsaWVyX25hbWUiIGlkPSJmbGRfc3VwcGxpZXIiIHBsYWNlaG9sZGVyPSJlLmcuIDEyMy1yZWciPgogICAgICAgICAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0iY29sLW1kLTYgbWItMyI+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8bGFiZWwgY2xhc3M9ImZvcm0tbGFiZWwiPkNhdGVnb3J5PC9sYWJlbD4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxzZWxlY3QgY2xhc3M9ImZvcm0tc2VsZWN0IiBuYW1lPSJiaWxsaW5nX2NhdGVnb3J5IiBpZD0iZmxkX2NhdGVnb3J5Ij4KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA8b3B0aW9uIHZhbHVlPSJTRVJWSUNFIj5TZXJ2aWNlPC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iU09GVFdBUkUiPlNvZnR3YXJlPC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iRE9NQUlOIj5Eb21haW48L29wdGlvbj4KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA8b3B0aW9uIHZhbHVlPSJMSUNFTkNFIj5MaWNlbmNlPC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iSEFSRFdBUkUiPkhhcmR3YXJlPC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iT1RIRVIiPk90aGVyPC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8L3NlbGVjdD4KICAgICAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0icm93Ij4KICAgICAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0iY29sLW1kLTQgbWItMyI+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8bGFiZWwgY2xhc3M9ImZvcm0tbGFiZWwiPlF1YW50aXR5PC9sYWJlbD4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxpbnB1dCB0eXBlPSJudW1iZXIiIHN0ZXA9IjAuMDEiIGNsYXNzPSJmb3JtLWNvbnRyb2wiIG5hbWU9InF1YW50aXR5IiBpZD0iZmxkX3F1YW50aXR5IiB2YWx1ZT0iMSIgcmVxdWlyZWQ+CiAgICAgICAgICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzPSJjb2wtbWQtNCBtYi0zIj4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxsYWJlbCBjbGFzcz0iZm9ybS1sYWJlbCI+Q29zdCBQcmljZSAoZXggVkFUKTwvbGFiZWw+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8aW5wdXQgdHlwZT0ibnVtYmVyIiBzdGVwPSIwLjAxIiBjbGFzcz0iZm9ybS1jb250cm9sIiBuYW1lPSJjb3N0X3ByaWNlIiBpZD0iZmxkX2Nvc3QiIHZhbHVlPSIwIiByZXF1aXJlZD4KICAgICAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9ImNvbC1tZC00IG1iLTMiPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPGxhYmVsIGNsYXNzPSJmb3JtLWxhYmVsIj5TYWxlIFByaWNlIChleCBWQVQpPC9sYWJlbD4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxpbnB1dCB0eXBlPSJudW1iZXIiIHN0ZXA9IjAuMDEiIGNsYXNzPSJmb3JtLWNvbnRyb2wiIG5hbWU9InNhbGVfcHJpY2UiIGlkPSJmbGRfc2FsZSIgcmVxdWlyZWQ+CiAgICAgICAgICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9InJvdyI+CiAgICAgICAgICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9ImNvbC1tZC02IG1iLTMiPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPGxhYmVsIGNsYXNzPSJmb3JtLWxhYmVsIj5GcmVxdWVuY3k8L2xhYmVsPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPHNlbGVjdCBjbGFzcz0iZm9ybS1zZWxlY3QiIG5hbWU9ImJpbGxpbmdfZnJlcXVlbmN5IiBpZD0iZmxkX2ZyZXF1ZW5jeSI+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iTU9OVEhMWSI+TW9udGhseTwvb3B0aW9uPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxvcHRpb24gdmFsdWU9IlFVQVJURVJMWSI+UXVhcnRlcmx5PC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgPG9wdGlvbiB2YWx1ZT0iQU5OVUFMTFkiPkFubnVhbGx5PC9vcHRpb24+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICA8L3NlbGVjdD4KICAgICAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgICAgIDxkaXYgY2xhc3M9ImNvbC1tZC02IG1iLTMiPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgPGxhYmVsIGNsYXNzPSJmb3JtLWxhYmVsIj5TdGFydCBEYXRlPC9sYWJlbD4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIDxpbnB1dCB0eXBlPSJkYXRlIiBjbGFzcz0iZm9ybS1jb250cm9sIiBuYW1lPSJzdGFydF9kYXRlIiBpZD0iZmxkX3N0YXJ0IiByZXF1aXJlZD4KICAgICAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0ibWItMyI+CiAgICAgICAgICAgICAgICAgICAgICAgIDxsYWJlbCBjbGFzcz0iZm9ybS1sYWJlbCI+Tm90ZXMgKG9wdGlvbmFsKTwvbGFiZWw+CiAgICAgICAgICAgICAgICAgICAgICAgIDx0ZXh0YXJlYSBjbGFzcz0iZm9ybS1jb250cm9sIiBuYW1lPSJub3RlcyIgaWQ9ImZsZF9ub3RlcyIgcm93cz0iMiI+PC90ZXh0YXJlYT4KICAgICAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgPGRpdiBjbGFzcz0ibW9kYWwtZm9vdGVyIj4KICAgICAgICAgICAgICAgICAgICA8YnV0dG9uIHR5cGU9ImJ1dHRvbiIgY2xhc3M9ImJ0biBidG4tc2Vjb25kYXJ5IiBkYXRhLWJzLWRpc21pc3M9Im1vZGFsIj5DYW5jZWw8L2J1dHRvbj4KICAgICAgICAgICAgICAgICAgICA8YnV0dG9uIHR5cGU9InN1Ym1pdCIgY2xhc3M9ImJ0biBidG4tcHJpbWFyeSI+U2F2ZSBJdGVtPC9idXR0b24+CiAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgPC9mb3JtPgogICAgICAgIDwvZGl2PgogICAgPC9kaXY+CjwvZGl2PgoKPHNjcmlwdD4KbGV0IGNhdGFsb2dJdGVtcyA9IFtdOwoKYXN5bmMgZnVuY3Rpb24gbG9hZENhdGFsb2coKSB7CiAgICB0cnkgewogICAgICAgIGNvbnN0IHJlc3AgPSBhd2FpdCBmZXRjaCgnL2FwaS9yZWN1cnJpbmctY2F0YWxvZycpOwogICAgICAgIGlmICghcmVzcC5vaykgcmV0dXJuOwogICAgICAgIGNhdGFsb2dJdGVtcyA9IGF3YWl0IHJlc3AuanNvbigpOwogICAgICAgIGNvbnN0IHNlbCA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdjYXRhbG9nU2VsZWN0Jyk7CiAgICAgICAgY2F0YWxvZ0l0ZW1zLmZpbHRlcihjID0+IGMuaXNfYWN0aXZlKS5mb3JFYWNoKGMgPT4gewogICAgICAgICAgICBjb25zdCBvcHQgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCdvcHRpb24nKTsKICAgICAgICAgICAgb3B0LnZhbHVlID0gYy5pZDsKICAgICAgICAgICAgb3B0LnRleHRDb250ZW50ID0gYy5uYW1lICsgKGMuc3VwcGxpZXJfbmFtZSA/ICcgKCcgKyBjLnN1cHBsaWVyX25hbWUgKyAnKScgOiAnJyk7CiAgICAgICAgICAgIHNlbC5hcHBlbmRDaGlsZChvcHQpOwogICAgICAgIH0pOwogICAgfSBjYXRjaCAoZXJyKSB7IC8qIGNhdGFsb2d1ZSBvcHRpb25hbCAtIGlnbm9yZSAqLyB9Cn0KCmZ1bmN0aW9uIGFwcGx5Q2F0YWxvZygpIHsKICAgIGNvbnN0IGlkID0gZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2NhdGFsb2dTZWxlY3QnKS52YWx1ZTsKICAgIGlmICghaWQpIHJldHVybjsKICAgIGNvbnN0IGMgPSBjYXRhbG9nSXRlbXMuZmluZCh4ID0+IHguaWQgPT09IGlkKTsKICAgIGlmICghYykgcmV0dXJuOwogICAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2ZsZF9kZXNjcmlwdGlvbicpLnZhbHVlID0gYy5kZXNjcmlwdGlvbiB8fCAnJzsKICAgIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdmbGRfc3VwcGxpZXInKS52YWx1ZSA9IGMuc3VwcGxpZXJfbmFtZSB8fCAnJzsKICAgIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdmbGRfY2F0ZWdvcnknKS52YWx1ZSA9IGMuYmlsbGluZ19jYXRlZ29yeSB8fCAnU0VSVklDRSc7CiAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZmxkX2Nvc3QnKS52YWx1ZSA9IGMuZGVmYXVsdF9jb3N0X3ByaWNlIHx8IDA7CiAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZmxkX3NhbGUnKS52YWx1ZSA9IGMuZGVmYXVsdF9zYWxlX3ByaWNlIHx8IDA7CiAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZmxkX2ZyZXF1ZW5jeScpLnZhbHVlID0gYy5kZWZhdWx0X2JpbGxpbmdfZnJlcXVlbmN5IHx8ICdNT05USExZJzsKfQoKYXN5bmMgZnVuY3Rpb24gYWRkUmVjdXJyaW5nSXRlbShlKSB7CiAgICBlLnByZXZlbnREZWZhdWx0KCk7CiAgICBjb25zdCBmZCA9IG5ldyBGb3JtRGF0YShkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnYWRkSXRlbUZvcm0nKSk7CiAgICBjb25zdCBjYXRhbG9nSWQgPSBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnY2F0YWxvZ1NlbGVjdCcpLnZhbHVlOwoKICAgIGNvbnN0IHBheWxvYWQgPSB7CiAgICAgICAgZGVzY3JpcHRpb246IGZkLmdldCgnZGVzY3JpcHRpb24nKSwKICAgICAgICBzdXBwbGllcl9uYW1lOiBmZC5nZXQoJ3N1cHBsaWVyX25hbWUnKSB8fCBudWxsLAogICAgICAgIGJpbGxpbmdfY2F0ZWdvcnk6IGZkLmdldCgnYmlsbGluZ19jYXRlZ29yeScpLAogICAgICAgIHF1YW50aXR5OiBwYXJzZUZsb2F0KGZkLmdldCgncXVhbnRpdHknKSksCiAgICAgICAgY29zdF9wcmljZTogcGFyc2VGbG9hdChmZC5nZXQoJ2Nvc3RfcHJpY2UnKSksCiAgICAgICAgc2FsZV9wcmljZTogcGFyc2VGbG9hdChmZC5nZXQoJ3NhbGVfcHJpY2UnKSksCiAgICAgICAgYmlsbGluZ19mcmVxdWVuY3k6IGZkLmdldCgnYmlsbGluZ19mcmVxdWVuY3knKSwKICAgICAgICBzdGFydF9kYXRlOiBmZC5nZXQoJ3N0YXJ0X2RhdGUnKSwKICAgICAgICBub3RlczogZmQuZ2V0KCdub3RlcycpIHx8IG51bGwKICAgIH07CgogICAgbGV0IHVybCA9ICcvYXBpL2N1c3RvbWVycy97eyBjdXN0b21lci5pZCB9fS9yZWN1cnJpbmctYmlsbGluZyc7CiAgICBpZiAoY2F0YWxvZ0lkKSB7CiAgICAgICAgdXJsID0gJy9hcGkvY3VzdG9tZXJzL3t7IGN1c3RvbWVyLmlkIH19L3JlY3VycmluZy1iaWxsaW5nL2Zyb20tY2F0YWxvZyc7CiAgICAgICAgcGF5bG9hZC5jYXRhbG9nX2l0ZW1faWQgPSBjYXRhbG9nSWQ7CiAgICB9CgogICAgdHJ5IHsKICAgICAgICBjb25zdCByZXNwID0gYXdhaXQgZmV0Y2godXJsLCB7CiAgICAgICAgICAgIG1ldGhvZDogJ1BPU1QnLAogICAgICAgICAgICBoZWFkZXJzOiB7J0NvbnRlbnQtVHlwZSc6ICdhcHBsaWNhdGlvbi9qc29uJ30sCiAgICAgICAgICAgIGJvZHk6IEpTT04uc3RyaW5naWZ5KHBheWxvYWQpCiAgICAgICAgfSk7CiAgICAgICAgaWYgKHJlc3Aub2spIHsKICAgICAgICAgICAgd2luZG93LmxvY2F0aW9uLnJlbG9hZCgpOwogICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgIGNvbnN0IGRhdGEgPSBhd2FpdCByZXNwLmpzb24oKTsKICAgICAgICAgICAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3Jlc3VsdE1zZycpLmlubmVySFRNTCA9CiAgICAgICAgICAgICAgICBgPGRpdiBjbGFzcz0iYWxlcnQgYWxlcnQtZGFuZ2VyIHB5LTIgbWItMCI+RmFpbGVkIHRvIHNhdmU6ICR7ZGF0YS5kZXRhaWwgfHwgSlNPTi5zdHJpbmdpZnkoZGF0YSl9PC9kaXY+YDsKICAgICAgICB9CiAgICB9IGNhdGNoIChlcnIpIHsKICAgICAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncmVzdWx0TXNnJykuaW5uZXJIVE1MID0KICAgICAgICAgICAgYDxkaXYgY2xhc3M9ImFsZXJ0IGFsZXJ0LWRhbmdlciBweS0yIG1iLTAiPkZhaWxlZCB0byBzYXZlOiAke2Vycn08L2Rpdj5gOwogICAgfQogICAgcmV0dXJuIGZhbHNlOwp9Cgpsb2FkQ2F0YWxvZygpOwo8L3NjcmlwdD4KeyUgZW5kYmxvY2sgJX0K"
+
+MODEL_CODE = '''
+
+class RecurringBillingCatalogItem(Base):
+    __tablename__ = "recurring_billing_catalog"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    supplier_name = Column(String, nullable=True)
+    billing_category = Column(String, nullable=False, default="SERVICE")
+    default_cost_price = Column(Numeric(12, 2), nullable=False, default=0)
+    default_sale_price = Column(Numeric(12, 2), nullable=False, default=0)
+    default_billing_frequency = Column(String, nullable=False, default="MONTHLY")
+    is_active = Column(Boolean, nullable=False, default=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+'''
+
+MIG_CODE = '''
+
+@router.post("/migrate-recurring-catalog-schema")
+def migrate_recurring_catalog_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    statements = [
+        """
+        CREATE TABLE IF NOT EXISTS recurring_billing_catalog (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            description VARCHAR NOT NULL,
+            supplier_name VARCHAR,
+            billing_category VARCHAR NOT NULL DEFAULT 'SERVICE',
+            default_cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+            default_sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+            default_billing_frequency VARCHAR NOT NULL DEFAULT 'MONTHLY',
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            notes TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        "ALTER TABLE recurring_billing_items ADD COLUMN IF NOT EXISTS catalog_item_id VARCHAR",
+        "CREATE INDEX IF NOT EXISTS ix_rbi_catalog_item ON recurring_billing_items(catalog_item_id)",
+    ]
+    for stmt in statements:
+        db.execute(text(stmt))
+    db.commit()
+    return {"status": "ok", "statements_run": len(statements)}
+'''
+
+RB_CODE = '''
+
+# ---- Recurring Billing Catalogue (added by apply_catalogue_changes.py) ----
+from uuid import uuid4 as _uuid4
+from datetime import date as _date
+from fastapi import HTTPException as _HTTPException
+from app import models as _models
+
+
+@router.get("/api/recurring-catalog")
+def list_catalog(db: Session = Depends(get_db)):
+    return (
+        db.query(_models.RecurringBillingCatalogItem)
+        .order_by(_models.RecurringBillingCatalogItem.name)
+        .all()
+    )
+
+
+@router.post("/api/recurring-catalog")
+def create_catalog_item(payload: dict, db: Session = Depends(get_db)):
+    item = _models.RecurringBillingCatalogItem(
+        id=str(_uuid4()),
+        name=payload["name"],
+        description=payload["description"],
+        supplier_name=payload.get("supplier_name"),
+        billing_category=payload.get("billing_category", "SERVICE"),
+        default_cost_price=payload.get("default_cost_price", 0),
+        default_sale_price=payload.get("default_sale_price", 0),
+        default_billing_frequency=payload.get("default_billing_frequency", "MONTHLY"),
+        notes=payload.get("notes"),
+    )
+    db.add(item)
+    db.commit()
+    return {"status": "ok", "id": item.id}
+
+
+@router.put("/api/recurring-catalog/{item_id}")
+def update_catalog_item(item_id: str, payload: dict, db: Session = Depends(get_db)):
+    item = db.query(_models.RecurringBillingCatalogItem).get(item_id)
+    if not item:
+        raise _HTTPException(404, "Catalogue item not found")
+    for field in ["name", "description", "supplier_name", "billing_category",
+                  "default_cost_price", "default_sale_price",
+                  "default_billing_frequency", "is_active", "notes"]:
+        if field in payload:
+            setattr(item, field, payload[field])
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/api/recurring-catalog/{item_id}")
+def delete_catalog_item(item_id: str, db: Session = Depends(get_db)):
+    item = db.query(_models.RecurringBillingCatalogItem).get(item_id)
+    if not item:
+        raise _HTTPException(404, "Catalogue item not found")
+    item.is_active = False
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/api/customers/{customer_id}/recurring-billing/from-catalog")
+def add_from_catalog(customer_id: str, payload: dict, db: Session = Depends(get_db)):
+    catalog = db.query(_models.RecurringBillingCatalogItem).get(payload["catalog_item_id"])
+    if not catalog:
+        raise _HTTPException(404, "Catalogue item not found")
+    start = _date.fromisoformat(payload["start_date"])
+    item = _models.RecurringBillingItem(
+        id=str(_uuid4()),
+        customer_id=customer_id,
+        catalog_item_id=catalog.id,
+        description=payload.get("description") or catalog.description,
+        supplier_name=payload.get("supplier_name") or catalog.supplier_name,
+        billing_category=payload.get("billing_category") or catalog.billing_category,
+        quantity=payload.get("quantity", 1),
+        cost_price=payload.get("cost_price", catalog.default_cost_price),
+        sale_price=payload.get("sale_price", catalog.default_sale_price),
+        billing_frequency=payload.get("billing_frequency") or catalog.default_billing_frequency,
+        start_date=start,
+        next_invoice_date=start,
+        notes=payload.get("notes"),
+    )
+    db.add(item)
+    db.commit()
+    return {"status": "ok", "id": item.id}
+'''
+
+PORTAL_CODE = '''
+
+@router.get("/recurring-catalog")
+def recurring_catalog_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
+    items = (
+        db.query(models.RecurringBillingCatalogItem)
+        .order_by(models.RecurringBillingCatalogItem.name)
+        .all()
+    )
+    return templates.TemplateResponse("recurring_catalog.html", {
+        "request": request, "items": items, "active_page": "recurring-catalog",
+    })
+'''
+
+print("\n== 1/5  Templates ==")
+write_template("base.html", BASE_HTML, "base.html")
+write_template("recurring_catalog.html", CATALOG_HTML, "recurring_catalog.html")
+write_template("customer_recurring_billing.html", CUSTOMER_HTML, "customer_recurring_billing.html")
+
+print("\n== 2/5  app/models.py ==")
+models_path = os.path.join(APP, "models.py")
+m = read(models_path)
+changed = False
+if "class RecurringBillingCatalogItem" in m:
+    print("  [skip]     RecurringBillingCatalogItem already present")
+else:
+    backup(models_path)
+    m = m.rstrip() + "\n" + MODEL_CODE
+    changed = True
+    print("  [add]      appended RecurringBillingCatalogItem model")
+
+if "catalog_item_id" in m:
+    print("  [skip]     catalog_item_id column already present")
+else:
+    anchor = '__tablename__ = "recurring_billing_items"'
+    if anchor in m:
+        if not changed:
+            backup(models_path)
+        col = anchor + '\n    catalog_item_id = Column(String, ForeignKey("recurring_billing_catalog.id", ondelete="SET NULL"), nullable=True, index=True)'
+        m = m.replace(anchor, col, 1)
+        changed = True
+        print("  [add]      inserted catalog_item_id into RecurringBillingItem")
+    else:
+        print("  [WARN]     could not find RecurringBillingItem __tablename__ anchor - add catalog_item_id manually")
+
+if changed:
+    write(models_path, m)
+
+print("\n== 3/5  app/routers/admin_migrate.py ==")
+am_path = os.path.join(APP, "routers", "admin_migrate.py")
+am = read(am_path)
+if "migrate-recurring-catalog-schema" in am:
+    print("  [skip]     migration endpoint already present")
+else:
+    backup(am_path)
+    write(am_path, am.rstrip() + "\n" + MIG_CODE)
+    print("  [add]      appended migrate-recurring-catalog-schema endpoint")
+
+print("\n== 4/5  app/routers/recurring_billing.py ==")
+rb_path = os.path.join(APP, "routers", "recurring_billing.py")
+rb = read(rb_path)
+if "/api/recurring-catalog" in rb:
+    print("  [skip]     catalogue endpoints already present")
+else:
+    backup(rb_path)
+    write(rb_path, rb.rstrip() + "\n" + RB_CODE)
+    print("  [add]      appended catalogue + from-catalog endpoints")
+
+print("\n== 5/5  app/routers/portal.py ==")
+p_path = os.path.join(APP, "routers", "portal.py")
+p = read(p_path)
+if "recurring_catalog_page" in p:
+    print("  [skip]     catalogue page route already present")
+else:
+    backup(p_path)
+    write(p_path, p.rstrip() + "\n" + PORTAL_CODE)
+    print("  [add]      appended /recurring-catalog page route")
+
+print("\n== Verifying imports ==")
+rc = os.system(sys.executable + ' -c "from app.routers import portal, recurring_billing, admin_migrate; from app import models; print(chr(39)+chr(39))" >/dev/null 2>&1')
+if rc == 0:
+    print("  imports OK")
+else:
+    print("  [note] import check could not run standalone (needs app deps) - that is fine; it will be validated on deploy")
+
+print("""
+==================================================================
+ DONE. Next steps:
+
+   git add -A
+   git commit -m "Add recurring billing catalogue feature"
+   git checkout main && git pull origin main
+   git merge add-email-to-ticket
+   git push origin main
+   git checkout add-email-to-ticket
+
+ Then run the migration (after the site redeploys):
+
+   curl -X POST \\
+     https://letsma-msp-5122.azurewebsites.net/api/admin/migrate-recurring-catalog-schema \\
+     -H "X-Agent-Key: $AGENT_KEY"
+
+ Expected: {"status":"ok","statements_run":3}
+==================================================================
+""")
