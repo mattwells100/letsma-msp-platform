@@ -31,6 +31,8 @@ from app.deps import require_login_page
 router = APIRouter(tags=["Portal"])
 templates = Jinja2Templates(directory="app/templates")
 
+from app.models import RecurringBillingItem
+
 
 @router.get("/")
 def root(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
@@ -170,6 +172,35 @@ def billing_page(request: Request, db: Session = Depends(get_db), _=Depends(requ
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     return templates.TemplateResponse("billing.html", {"request": request, "invoices": invoices, "customers": customers, "active_page": "billing"})
 
+@router.get("/customers/{customer_id}/recurring-billing")
+def customer_recurring_billing(
+    request: Request,
+    customer_id: str,
+    db: Session = Depends(get_db),
+):
+    customer = (
+        db.query(Customer)
+        .filter(Customer.id == customer_id)
+        .first()
+    )
+
+    items = (
+        db.query(RecurringBillingItem)
+        .filter(
+            RecurringBillingItem.customer_id == customer_id
+        )
+        .all()
+    )
+
+    return templates.TemplateResponse(
+        "customer_recurring_billing.html",
+        {
+            "request": request,
+            "customer": customer,
+            "items": items,
+            "active_page": "customers",
+        },
+    )
 
 @router.get("/billing-settings")
 def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
