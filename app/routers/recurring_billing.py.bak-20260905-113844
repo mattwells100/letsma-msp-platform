@@ -136,29 +136,3 @@ def add_from_catalog(customer_id: str, payload: dict, db: Session = Depends(get_
     db.add(item)
     db.commit()
     return {"status": "ok", "id": item.id}
-
-
-# ---- Customer recurring item edit/disable (added by apply_edit_disable.py) ----
-@router.put("/api/customers/{customer_id}/recurring-billing/{item_id}")
-def update_recurring_item(customer_id: str, item_id: str, payload: dict, db: Session = Depends(get_db)):
-    item = db.query(_models.RecurringBillingItem).get(item_id)
-    if not item or item.customer_id != customer_id:
-        raise _HTTPException(404, "Recurring billing item not found")
-    for field in ["description", "supplier_name", "billing_category", "quantity",
-                  "cost_price", "sale_price", "billing_frequency", "notes"]:
-        if field in payload:
-            setattr(item, field, payload[field])
-    if payload.get("next_invoice_date"):
-        item.next_invoice_date = _date.fromisoformat(payload["next_invoice_date"])
-    db.commit()
-    return {"status": "ok"}
-
-
-@router.patch("/api/customers/{customer_id}/recurring-billing/{item_id}/toggle")
-def toggle_recurring_item(customer_id: str, item_id: str, db: Session = Depends(get_db)):
-    item = db.query(_models.RecurringBillingItem).get(item_id)
-    if not item or item.customer_id != customer_id:
-        raise _HTTPException(404, "Recurring billing item not found")
-    item.is_active = not item.is_active
-    db.commit()
-    return {"status": "ok", "is_active": item.is_active}
