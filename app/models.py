@@ -160,6 +160,7 @@ class Ticket(Base):
     external_ref = Column(String, nullable=True)  # e.g. WhatsApp message id, Teams message id, email message id
     reporter_name = Column(String, nullable=True)   # original sender's name, preserved even if no customer/contact matched
     reporter_email = Column(String, nullable=True)  # original sender's email, preserved even if no customer/contact matched
+    conversation_id = Column(String, nullable=True)  # Microsoft Graph conversationId of the email thread this ticket originated from - lets a REPLY within the same thread be detected and added as a comment instead of creating a duplicate ticket (see email_ingestion_service.py)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
