@@ -31,6 +31,8 @@ from app.deps import require_login_page
 router = APIRouter(tags=["Portal"])
 templates = Jinja2Templates(directory="app/templates")
 
+from app.models import RecurringBillingItem
+
 
 @router.get("/")
 def root(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
@@ -136,7 +138,7 @@ def tickets_page(request: Request, unassigned_only: bool = False, db: Session = 
     if unassigned_only:
         query = query.filter(models.Ticket.customer_id.is_(None))
     tickets = query.order_by(models.Ticket.created_at.desc()).all()
-    unassigned_count = db.query(models.Ticket).filter(models.Ticket.customer_id.is_(None)).filter(models.Ticket.deleted_at.is_(None)).count()
+    unassigned_count = db.query(models.Ticket).filter(models.Ticket.customer_id.is_(None)).count()
     return templates.TemplateResponse("tickets.html", {
         "request": request, "tickets": tickets, "active_page": "tickets",
         "unassigned_only": unassigned_only, "unassigned_count": unassigned_count,
@@ -172,19 +174,21 @@ def billing_page(request: Request, db: Session = Depends(get_db), _=Depends(requ
 
 @router.get("/customers/{customer_id}/recurring-billing")
 def customer_recurring_billing(
-    customer_id: str,
     request: Request,
+    customer_id: str,
     db: Session = Depends(get_db),
-    _=Depends(require_login_page),
 ):
-    customer = db.query(models.Customer).get(customer_id)
-    if not customer:
-        raise HTTPException(404, "Customer not found")
+    customer = (
+        db.query(Customer)
+        .filter(Customer.id == customer_id)
+        .first()
+    )
 
     items = (
-        db.query(models.RecurringBillingItem)
-        .filter(models.RecurringBillingItem.customer_id == customer_id)
-        .order_by(models.RecurringBillingItem.description)
+        db.query(RecurringBillingItem)
+        .filter(
+            RecurringBillingItem.customer_id == customer_id
+        )
         .all()
     )
 
@@ -197,6 +201,7 @@ def customer_recurring_billing(
             "active_page": "customers",
         },
     )
+
 @router.get("/billing-settings")
 def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()

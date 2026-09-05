@@ -166,7 +166,6 @@ class Ticket(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
     sla_due_at = Column(DateTime, nullable=True)
-    deleted_at = Column(DateTime, nullable=True)  # soft-delete marker; NULL = active
 
     customer = relationship("Customer", back_populates="tickets")
     contact = relationship("Contact")
