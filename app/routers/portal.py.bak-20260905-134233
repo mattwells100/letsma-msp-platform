@@ -31,6 +31,8 @@ from app.deps import require_login_page
 router = APIRouter(tags=["Portal"])
 templates = Jinja2Templates(directory="app/templates")
 
+from app.models import RecurringBillingItem
+
 
 @router.get("/")
 def root(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
@@ -172,19 +174,21 @@ def billing_page(request: Request, db: Session = Depends(get_db), _=Depends(requ
 
 @router.get("/customers/{customer_id}/recurring-billing")
 def customer_recurring_billing(
-    customer_id: str,
     request: Request,
+    customer_id: str,
     db: Session = Depends(get_db),
-    _=Depends(require_login_page),
 ):
-    customer = db.query(models.Customer).get(customer_id)
-    if not customer:
-        raise HTTPException(404, "Customer not found")
+    customer = (
+        db.query(Customer)
+        .filter(Customer.id == customer_id)
+        .first()
+    )
 
     items = (
-        db.query(models.RecurringBillingItem)
-        .filter(models.RecurringBillingItem.customer_id == customer_id)
-        .order_by(models.RecurringBillingItem.description)
+        db.query(RecurringBillingItem)
+        .filter(
+            RecurringBillingItem.customer_id == customer_id
+        )
         .all()
     )
 
@@ -197,6 +201,7 @@ def customer_recurring_billing(
             "active_page": "customers",
         },
     )
+
 @router.get("/billing-settings")
 def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
@@ -273,25 +278,4 @@ def recurring_catalog_page(request: Request, db: Session = Depends(get_db), _=De
     )
     return templates.TemplateResponse("recurring_catalog.html", {
         "request": request, "items": items, "active_page": "recurring-catalog",
-    })
-
-
-@router.get("/billing-preview")
-def billing_preview_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
-    # Only DRAFT invoices that have NOT been pushed to Xero are shown for
-    # review/approval - anything already synced is out of scope here.
-    drafts = (
-        db.query(models.Invoice)
-        .filter(models.Invoice.xero_invoice_id.is_(None))
-        .filter(models.Invoice.status == models.InvoiceStatus.DRAFT)
-        .order_by(models.Invoice.created_at.desc())
-        .all()
-    )
-    grand_subtotal = sum((inv.subtotal or 0) for inv in drafts)
-    grand_tax = sum((inv.tax_total or 0) for inv in drafts)
-    grand_total = sum((inv.total or 0) for inv in drafts)
-    return templates.TemplateResponse("billing_preview.html", {
-        "request": request, "drafts": drafts,
-        "grand_subtotal": grand_subtotal, "grand_tax": grand_tax, "grand_total": grand_total,
-        "active_page": "billing",
     })

@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Invoice Preview - Letsma MSP{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-1">
+    <h2 class="page-title mb-0">Invoice Preview &amp; Approve</h2>
+    <div>
+        <a class="btn btn-outline-secondary" href="/billing"><i class="bi bi-arrow-left"></i> Back to Billing</a>
+        {% if drafts %}
+        <button class="btn btn-success" onclick="pushAll()"><i class="bi bi-cloud-upload"></i> Push All to Xero</button>
+        {% endif %}
+    </div>
+</div>
+<div class="text-muted mb-4">Review every draft invoice and its line items <strong>before</strong> anything is sent to Xero. Generate drafts from Billing Settings, check them here, then approve.</div>
+
+<div id="resultMsg" class="mb-3"></div>
+
+{% if not drafts %}
+<div class="card stat-card p-4 text-center text-muted">
+    <div><i class="bi bi-inbox" style="font-size:2rem;"></i></div>
+    No draft invoices awaiting approval. Generate a monthly invoice run first, then review it here.
+</div>
+{% else %}
+
+<div class="card stat-card p-3 mb-4">
+    <div class="row text-center">
+        <div class="col">
+            <div class="text-muted small">Draft Invoices</div>
+            <div class="h4 mb-0">{{ drafts|length }}</div>
+        </div>
+        <div class="col">
+            <div class="text-muted small">Subtotal (ex VAT)</div>
+            <div class="h4 mb-0">&pound;{{ '%.2f'|format(grand_subtotal) }}</div>
+        </div>
+        <div class="col">
+            <div class="text-muted small">VAT</div>
+            <div class="h4 mb-0">&pound;{{ '%.2f'|format(grand_tax) }}</div>
+        </div>
+        <div class="col">
+            <div class="text-muted small">Total (inc VAT)</div>
+            <div class="h4 mb-0">&pound;{{ '%.2f'|format(grand_total) }}</div>
+        </div>
+    </div>
+</div>
+
+{% for inv in drafts %}
+<div class="card stat-card p-3 mb-3" id="card-{{ inv.id }}">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h5 class="mb-0">{{ inv.customer.name if inv.customer else 'Unknown customer' }}</h5>
+            <div class="text-muted small">
+                {{ inv.invoice_number or inv.id[:8] }}
+                {% if inv.billing_period_start %} &middot; {{ inv.billing_period_start.strftime('%B %Y') }}{% endif %}
+                &middot; {{ inv.line_items|length }} line{{ '' if inv.line_items|length == 1 else 's' }}
+            </div>
+        </div>
+        <div class="text-end">
+            <div class="h5 mb-0">&pound;{{ '%.2f'|format(inv.total) }}</div>
+            <div class="text-muted small">inc VAT</div>
+        </div>
+    </div>
+
+    {% set has_zero = inv.line_items|selectattr('unit_price', 'equalto', 0)|list %}
+    {% if not inv.line_items %}
+        <div class="alert alert-warning py-2 mt-2 mb-0"><i class="bi bi-exclamation-triangle"></i> This invoice has no line items.</div>
+    {% elif has_zero %}
+        <div class="alert alert-warning py-2 mt-2 mb-0"><i class="bi bi-exclamation-triangle"></i> One or more lines have a &pound;0.00 unit price - please review before approving.</div>
+    {% endif %}
+
+    <table class="table table-sm mt-3 mb-2">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-end">Qty</th>
+                <th class="text-end">Unit (ex VAT)</th>
+                <th class="text-end">Line Total</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for li in inv.line_items %}
+            <tr {% if li.unit_price == 0 %}class="table-warning"{% endif %}>
+                <td>{{ li.description }}</td>
+                <td class="text-end">{{ li.quantity }}</td>
+                <td class="text-end">&pound;{{ '%.2f'|format(li.unit_price) }}</td>
+                <td class="text-end">&pound;{{ '%.2f'|format(li.quantity * li.unit_price) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr><td colspan="3" class="text-end text-muted">Subtotal</td><td class="text-end">&pound;{{ '%.2f'|format(inv.subtotal) }}</td></tr>
+            <tr><td colspan="3" class="text-end text-muted">VAT (20%)</td><td class="text-end">&pound;{{ '%.2f'|format(inv.tax_total) }}</td></tr>
+            <tr><td colspan="3" class="text-end fw-bold">Total</td><td class="text-end fw-bold">&pound;{{ '%.2f'|format(inv.total) }}</td></tr>
+        </tfoot>
+    </table>
+
+    <div class="d-flex justify-content-end gap-2">
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteDraft('{{ inv.id }}')"><i class="bi bi-trash"></i> Discard</button>
+        <button class="btn btn-sm btn-primary" onclick="pushOne('{{ inv.id }}')"><i class="bi bi-cloud-upload"></i> Approve &amp; Push to Xero</button>
+    </div>
+</div>
+{% endfor %}
+
+{% endif %}
+
+<script>
+function msg(html, kind) {
+    document.getElementById('resultMsg').innerHTML =
+        '<div class="alert alert-' + (kind || 'info') + ' py-2 mb-0">' + html + '</div>';
+}
+
+async function pushOne(id) {
+    try {
+        const resp = await fetch('/api/billing/invoices/' + id + '/push-to-xero', {method: 'POST'});
+        if (resp.ok) {
+            const card = document.getElementById('card-' + id);
+            if (card) card.remove();
+            msg('Pushed invoice ' + id.substring(0,8) + ' to Xero.', 'success');
+        } else {
+            const data = await resp.json();
+            msg('Push failed for ' + id.substring(0,8) + ': ' + (data.detail || JSON.stringify(data)), 'danger');
+        }
+    } catch (err) {
+        msg('Push failed: ' + err, 'danger');
+    }
+}
+
+async function deleteDraft(id) {
+    if (!confirm('Discard this draft invoice? It will be permanently removed (it has not been sent to Xero).')) return;
+    try {
+        const resp = await fetch('/api/billing/invoices/' + id, {method: 'DELETE'});
+        if (resp.ok) {
+            const card = document.getElementById('card-' + id);
+            if (card) card.remove();
+            msg('Draft ' + id.substring(0,8) + ' discarded.', 'secondary');
+        } else {
+            const data = await resp.json();
+            msg('Discard failed: ' + (data.detail || JSON.stringify(data)), 'danger');
+        }
+    } catch (err) {
+        msg('Discard failed: ' + err, 'danger');
+    }
+}
+
+async function pushAll() {
+    if (!confirm('Approve and push ALL draft invoices to Xero?')) return;
+    const cards = document.querySelectorAll('[id^="card-"]');
+    let ok = 0, fail = 0;
+    for (const card of cards) {
+        const id = card.id.replace('card-', '');
+        try {
+            const resp = await fetch('/api/billing/invoices/' + id + '/push-to-xero', {method: 'POST'});
+            if (resp.ok) { card.remove(); ok++; }
+            else { fail++; }
+        } catch (err) { fail++; }
+    }
+    msg('Push complete: ' + ok + ' succeeded, ' + fail + ' failed.', fail ? 'warning' : 'success');
+}
+</script>
+{% endblock %}
