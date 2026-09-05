@@ -234,6 +234,12 @@ def delete_purchase(order_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Purchase order not found")
     if order.invoiced:
         raise HTTPException(400, "Cannot delete a purchase that has already been invoiced")
+    # Remove the processed-email dedup row(s) that reference this order first,
+    # otherwise the FK constraint blocks the delete. (Line items cascade.)
+    # Note: clearing the dedup record means the source email can be
+    # re-ingested on the next poll - intended for clearing junk rows.
+    db.query(models.ProcessedPurchaseEmail).filter_by(order_id=order.id).delete()
+    db.flush()
     db.delete(order)
     db.commit()
     return {"ok": True}

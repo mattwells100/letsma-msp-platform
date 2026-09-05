@@ -115,6 +115,16 @@ def delete_invoice(invoice_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Invoice not found")
     if invoice.xero_invoice_id:
         raise HTTPException(400, "Invoice already pushed to Xero - cannot discard here.")
+    # Unbill any children that reference this invoice so the FK constraints
+    # don't block the delete - purchases/time entries return to the unbilled
+    # pool rather than being destroyed. (InvoiceLineItems cascade-delete.)
+    for order in db.query(models.AmazonOrder).filter_by(invoice_id=invoice.id).all():
+        order.invoiced = False
+        order.invoice_id = None
+    for entry in db.query(models.TimeEntry).filter_by(invoice_id=invoice.id).all():
+        entry.invoiced = False
+        entry.invoice_id = None
+    db.flush()
     db.delete(invoice)
     db.commit()
     return {"status": "ok", "deleted": invoice_id}
