@@ -27,6 +27,7 @@ from app.routers import ai_assist
 from app.routers import auth as auth_login
 from app.routers import admin_technicians
 from app.routers import purchasing_email_ingestion, purchasing_email_admin
+from app.routers import recurring_billing
 
 Base.metadata.create_all(bind=engine)
 
@@ -69,6 +70,7 @@ app.include_router(tickets.router, dependencies=[Depends(require_login_json)])
 app.include_router(billing.router, dependencies=[Depends(require_login_json)])
 app.include_router(licenses.router, dependencies=[Depends(require_login_json)])
 app.include_router(endpoints.router, dependencies=[Depends(require_login_json)])
+
 
 # Contacts (Microsoft 365 sync) - session-gated.
 # admin_migrate stays UNGATED by session - it already has its own
@@ -117,7 +119,7 @@ app.include_router(portal.router)
 app.include_router(ai_assist.router, dependencies=[Depends(require_login_json)])
 app.include_router(purchasing_email_ingestion.router, dependencies=[Depends(require_login_json)])
 app.include_router(purchasing_email_admin.router)
-
+app.include_router(recurring_billing.router)
 
 @app.on_event("startup")
 async def _on_startup():

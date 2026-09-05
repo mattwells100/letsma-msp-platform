@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Enum
+    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Enum, Date, Numeric
 )
 from sqlalchemy.orm import relationship
 
@@ -252,6 +252,62 @@ class TimeEntry(Base):
     customer = relationship("Customer", back_populates="time_entries")
     ticket = relationship("Ticket")
 
+
+class RecurringBillingItem(Base):
+    __tablename__ = "recurring_billing_items"
+
+    id = Column(String, primary_key=True)
+
+    customer_id = Column(
+        String,
+        ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    description = Column(String, nullable=False)
+
+    quantity = Column(Numeric(10, 2), nullable=False, default=1)
+
+    cost_price = Column(Numeric(12, 2), nullable=False, default=0)
+    sale_price = Column(Numeric(12, 2), nullable=False)
+
+    supplier_name = Column(String, nullable=True)
+
+    billing_frequency = Column(
+        String,
+        nullable=False,
+        default="MONTHLY",
+    )
+
+    billing_category = Column(
+        String,
+        nullable=False,
+        default="SERVICE",
+    )
+
+    start_date = Column(Date, nullable=False)
+
+    next_invoice_date = Column(Date, nullable=False)
+
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    xero_item_code = Column(String, nullable=True)
+
+    notes = Column(Text, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
+
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
 class AmazonOrder(Base):
     """

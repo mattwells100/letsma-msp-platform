@@ -1,0 +1,64 @@
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Recurring Billing Items</h5>
+
+        <button class="btn btn-primary">
+            Add Item
+        </button>
+    </div>
+
+    <div class="card-body">
+        <table class="table table-striped">
+
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Supplier</th>
+                    <th>Qty</th>
+                    <th>Cost</th>
+                    <th>Sell</th>
+                    <th>Frequency</th>
+                    <th>Next Invoice</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for item in items %}
+                <tr>
+
+                    <td>{{ item.description }}</td>
+
+                    <td>{{ item.supplier_name or "" }}</td>
+
+                    <td>{{ item.quantity }}</td>
+
+                    <td>£{{ item.cost_price }}</td>
+
+                    <td>£{{ item.sale_price }}</td>
+
+                    <td>{{ item.billing_frequency }}</td>
+
+                    <td>{{ item.next_invoice_date }}</td>
+
+                    <td>
+                        {% if item.is_active %}
+                        <span class="badge bg-success">
+                            Active
+                        </span>
+                        {% else %}
+                        <span class="badge bg-secondary">
+                            Disabled
+                        </span>
+                        {% endif %}
+                    </td>
+
+                </tr>
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+    </div>
+</div>

@@ -137,6 +137,74 @@ def migrate_billing_schema(db: Session = Depends(get_db), _=Depends(_check_admin
     return {"ok": True, "statements_applied": applied}
 
 
+@router.post("/migrate-recurring-billing-schema")
+def migrate_recurring_billing_schema(
+    db: Session = Depends(get_db),
+    _=Depends(_check_admin_key),
+):
+    statements = [
+        """
+        CREATE TABLE IF NOT EXISTS recurring_billing_items (
+            id VARCHAR PRIMARY KEY,
+
+            customer_id VARCHAR NOT NULL,
+
+            description VARCHAR NOT NULL,
+
+            quantity NUMERIC(10,2) NOT NULL DEFAULT 1,
+
+            cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+
+            sale_price NUMERIC(12,2) NOT NULL,
+
+            supplier_name VARCHAR,
+
+            billing_frequency VARCHAR NOT NULL DEFAULT 'MONTHLY',
+
+            billing_category VARCHAR NOT NULL DEFAULT 'SERVICE',
+
+            start_date DATE NOT NULL,
+
+            next_invoice_date DATE NOT NULL,
+
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+            xero_item_code VARCHAR,
+
+            notes TEXT,
+
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS
+        ix_rbi_customer
+        ON recurring_billing_items(customer_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS
+        ix_rbi_next_invoice
+        ON recurring_billing_items(next_invoice_date)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS
+        ix_rbi_active
+        ON recurring_billing_items(is_active)
+        """
+    ]
+
+    for statement in statements:
+        db.execute(text(statement))
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "statements_run": len(statements)
+    }
+
 @router.post("/migrate-email-ticket-schema")
 def migrate_email_ticket_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
     """Adds the email-to-ticket ingestion tables (excluded senders,
