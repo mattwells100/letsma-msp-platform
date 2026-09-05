@@ -96,6 +96,7 @@ class Customer(Base):
     amazon_markup_percent = Column(Float, default=0.0)        # markup %, applied to ALL purchases (any supplier), not just Amazon
     license_billing_mode = Column(String, default="none")     # "none" | "all" | "selected"
     licensed_skus_billed = Column(String, nullable=True)      # comma-separated sku_part_number list, only used when mode == "selected"
+    license_term_commitment = Column(String, default="monthly")
 
     contacts = relationship("Contact", back_populates="customer", cascade="all, delete-orphan")
     tickets = relationship("Ticket", back_populates="customer", cascade="all, delete-orphan")
@@ -571,10 +572,6 @@ class OAuthToken(Base):
     scope = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-license_term_commitment = Column(String, default="monthly")
-price_term = Column(String, default="monthly")
-entered_sell_price = Column(Float, nullable=True)
-entered_cost_price = Column(Float, nullable=True)
 
 
 class RecurringBillingCatalogItem(Base):
