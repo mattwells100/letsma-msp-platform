@@ -8,9 +8,11 @@
     </button>
 </div>
 
+<div id="resultMsg" class="mb-3"></div>
+
 <div class="card stat-card p-3">
     <table class="table align-middle">
-        <thead><tr><th>Name</th><th>Account Manager</th><th>Status</th><th>Phone</th><th>Email</th></tr></thead>
+        <thead><tr><th>Name</th><th>Account Manager</th><th>Status</th><th>Phone</th><th>Email</th><th class="text-end">Edit</th></tr></thead>
         <tbody>
         {% for c in customers %}
             <tr onclick="window.location='/customers/{{ c.id }}'" style="cursor:pointer">
@@ -19,9 +21,23 @@
                 <td><span class="badge bg-success">{{ c.status }}</span></td>
                 <td>{{ c.phone or '-' }}</td>
                 <td>{{ c.email or '-' }}</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary"
+                        onclick='event.stopPropagation(); openEditCustomer({{ {
+                            "id": c.id,
+                            "name": c.name,
+                            "trading_name": c.trading_name,
+                            "address": c.address,
+                            "phone": c.phone,
+                            "email": c.email,
+                            "account_manager": c.account_manager,
+                            "whatsapp_number": c.whatsapp_number,
+                            "m365_tenant_id": c.m365_tenant_id
+                        }|tojson }})'><i class="bi bi-pencil"></i></button>
+                </td>
             </tr>
         {% else %}
-            <tr><td colspan="5" class="text-muted">No customers yet - add one via the API (POST /api/customers) or the button above.</td></tr>
+            <tr><td colspan="6" class="text-muted">No customers yet - add one via the API (POST /api/customers) or the button above.</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -39,6 +55,7 @@
           <div class="mb-2"><label class="form-label">Email</label><input class="form-control" name="email" type="email"></div>
           <div class="mb-2"><label class="form-label">Phone</label><input class="form-control" name="phone"></div>
           <div class="mb-2"><label class="form-label">Account Manager</label><input class="form-control" name="account_manager"></div>
+          <div class="mb-2"><label class="form-label">Address</label><input class="form-control" name="address"></div>
           <div class="mb-2"><label class="form-label">WhatsApp Number (E.164, no +)</label><input class="form-control" name="whatsapp_number" placeholder="447700900123"></div>
           <div class="mb-2"><label class="form-label">Microsoft 365 Tenant ID</label><input class="form-control" name="m365_tenant_id"></div>
         </form>
@@ -50,7 +67,34 @@
   </div>
 </div>
 
+<!-- Edit Customer Modal -->
+<div class="modal fade" id="editCustomerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Edit Customer</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <form id="editCustomerForm">
+          <input type="hidden" id="edit_id">
+          <div class="mb-2"><label class="form-label">Name</label><input class="form-control" id="edit_name" required></div>
+          <div class="mb-2"><label class="form-label">Trading Name</label><input class="form-control" id="edit_trading_name"></div>
+          <div class="mb-2"><label class="form-label">Email</label><input class="form-control" id="edit_email" type="email"></div>
+          <div class="mb-2"><label class="form-label">Phone</label><input class="form-control" id="edit_phone"></div>
+          <div class="mb-2"><label class="form-label">Account Manager</label><input class="form-control" id="edit_account_manager"></div>
+          <div class="mb-2"><label class="form-label">Address</label><input class="form-control" id="edit_address"></div>
+          <div class="mb-2"><label class="form-label">WhatsApp Number (E.164, no +)</label><input class="form-control" id="edit_whatsapp_number" placeholder="447700900123"></div>
+          <div class="mb-2"><label class="form-label">Microsoft 365 Tenant ID</label><input class="form-control" id="edit_m365_tenant_id"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="submitEditCustomer()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+let editCustomerModal;
+
 async function submitNewCustomer() {
     const form = document.getElementById('newCustomerForm');
     const data = Object.fromEntries(new FormData(form).entries());
@@ -59,6 +103,49 @@ async function submitNewCustomer() {
     });
     if (resp.ok) { window.location.reload(); } else { alert('Failed to create customer: ' + await resp.text()); }
 }
+
+function openEditCustomer(c) {
+    document.getElementById('edit_id').value = c.id;
+    document.getElementById('edit_name').value = c.name || '';
+    document.getElementById('edit_trading_name').value = c.trading_name || '';
+    document.getElementById('edit_email').value = c.email || '';
+    document.getElementById('edit_phone').value = c.phone || '';
+    document.getElementById('edit_account_manager').value = c.account_manager || '';
+    document.getElementById('edit_address').value = c.address || '';
+    document.getElementById('edit_whatsapp_number').value = c.whatsapp_number || '';
+    document.getElementById('edit_m365_tenant_id').value = c.m365_tenant_id || '';
+    if (!editCustomerModal) editCustomerModal = new bootstrap.Modal(document.getElementById('editCustomerModal'));
+    editCustomerModal.show();
+}
+
+async function submitEditCustomer() {
+    const id = document.getElementById('edit_id').value;
+    // PUT /api/customers/{id} expects the full CustomerCreate shape (name is required).
+    const payload = {
+        name: document.getElementById('edit_name').value,
+        trading_name: document.getElementById('edit_trading_name').value || null,
+        address: document.getElementById('edit_address').value || null,
+        phone: document.getElementById('edit_phone').value || null,
+        email: document.getElementById('edit_email').value || null,
+        account_manager: document.getElementById('edit_account_manager').value || null,
+        whatsapp_number: document.getElementById('edit_whatsapp_number').value || null,
+        m365_tenant_id: document.getElementById('edit_m365_tenant_id').value || null
+    };
+    try {
+        const resp = await fetch('/api/customers/' + id, {
+            method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        if (resp.ok) {
+            window.location.reload();
+        } else {
+            const t = await resp.text();
+            document.getElementById('resultMsg').innerHTML =
+                '<div class="alert alert-danger py-2 mb-0">Failed to save: ' + t + '</div>';
+        }
+    } catch (err) {
+        document.getElementById('resultMsg').innerHTML =
+            '<div class="alert alert-danger py-2 mb-0">Failed to save: ' + err + '</div>';
+    }
+}
 </script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 {% endblock %}
