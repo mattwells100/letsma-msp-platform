@@ -211,7 +211,21 @@ def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Dep
     assigned_skus = {
         row[0] for row in db.query(models.LicenseAssignment.sku_part_number).distinct().all()
     }
-    known_skus = sorted(priced_skus | assigned_skus)
+    
+    all_assignments = db.query(LicenseAssignment).all()
+
+    sku_lookup = {}
+
+    for a in all_assignments:
+        sku_lookup[a.sku_part_number] = (
+            a.friendly_name or a.sku_part_number
+        )
+
+    known_skus = sorted(
+        sku_lookup.items(),
+        key=lambda x: x[1]
+    )
+
 
     return templates.TemplateResponse("billing_settings.html", {
         "request": request,
