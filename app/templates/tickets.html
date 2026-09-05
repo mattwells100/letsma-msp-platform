@@ -19,9 +19,12 @@
         </button>
     </div>
 </div>
+
+<div id="resultMsg" class="mb-3"></div>
+
 <div class="card stat-card p-3">
     <table class="table align-middle">
-        <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead>
+        <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Status</th><th>Created</th><th>Updated</th><th class="text-end">Delete</th></tr></thead>
         <tbody>
         {% for t in tickets %}
             <tr onclick="window.location='/tickets/{{ t.id }}'" style="cursor:pointer">
@@ -45,13 +48,19 @@
                 <td><span class="badge badge-status-{{ (t.status.value if t.status.value is defined else t.status)|replace(' ','') }}">{{ t.status.value if t.status.value is defined else t.status }}</span></td>
                 <td class="small text-muted">{{ t.created_at.strftime('%d %b %Y %H:%M') }}</td>
                 <td class="small text-muted">{{ t.updated_at.strftime('%d %b %Y %H:%M') }}</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-danger"
+                        onclick="event.stopPropagation(); deleteTicket('{{ t.id }}', '{{ t.ticket_number }}')"
+                        title="Delete ticket"><i class="bi bi-trash"></i></button>
+                </td>
             </tr>
         {% else %}
-            <tr><td colspan="9" class="text-muted">{% if unassigned_only %}No unassigned tickets.{% else %}No tickets yet.{% endif %}</td></tr>
+            <tr><td colspan="10" class="text-muted">{% if unassigned_only %}No unassigned tickets.{% else %}No tickets yet.{% endif %}</td></tr>
         {% endfor %}
         </tbody>
     </table>
 </div>
+
 <div class="modal fade" id="newTicketModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -86,7 +95,25 @@
     </div>
   </div>
 </div>
+
 <script>
+async function deleteTicket(ticketId, ticketNumber) {
+    if (!confirm('Delete ticket #' + ticketNumber + '? It will be hidden from all lists but preserved for audit history.')) return;
+    try {
+        const resp = await fetch('/api/tickets/' + ticketId, {method: 'DELETE'});
+        if (resp.ok) {
+            window.location.reload();
+        } else {
+            const t = await resp.text();
+            document.getElementById('resultMsg').innerHTML =
+                '<div class="alert alert-danger py-2 mb-0">Failed to delete ticket: ' + t + '</div>';
+        }
+    } catch (err) {
+        document.getElementById('resultMsg').innerHTML =
+            '<div class="alert alert-danger py-2 mb-0">Failed to delete ticket: ' + err + '</div>';
+    }
+}
+
 document.getElementById('newTicketModal').addEventListener('show.bs.modal', async () => {
     const select = document.getElementById('newTicketCustomerSelect');
     const resp = await fetch('/api/customers/');
@@ -149,5 +176,4 @@ async function submitNewTicket() {
     }
 }
 </script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 {% endblock %}
