@@ -30,35 +30,6 @@ from app.models import (
     Customer, Invoice, InvoiceLineItem, TimeEntry, AmazonOrder,
     LicenseAssignment, LicensePrice, InvoiceStatus,
 )
-from app.models import RecurringBillingItem
-import calendar as _rb_calendar
-
-
-def _rb_add_months(d, n):
-    """Add n months to a date, clamping the day to the target month's length."""
-    idx = d.month - 1 + n
-    year = d.year + idx // 12
-    month = idx % 12 + 1
-    day = min(d.day, _rb_calendar.monthrange(year, month)[1])
-    return d.replace(year=year, month=month, day=day)
-
-
-def _rb_advance(current, frequency, period_end):
-    """
-    Advance a recurring item's next_invoice_date forward by its frequency,
-    rolling past period_end so a just-billed item is not billed again on the
-    next run (handles overdue items that were multiple periods behind too).
-    """
-    step = {"MONTHLY": 1, "QUARTERLY": 3, "ANNUALLY": 12}.get(
-        (frequency or "MONTHLY").upper(), 1
-    )
-    pe = period_end.date() if hasattr(period_end, "date") else period_end
-    new_date = current
-    # always advance at least once, then keep rolling until on/after period_end
-    new_date = _rb_add_months(new_date, step)
-    while new_date < pe:
-        new_date = _rb_add_months(new_date, step)
-    return new_date
 
 
 def _round2(value: float) -> float:
@@ -205,22 +176,6 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
                 count, _round2(price),
             ))
 
-    # Recurring billing items (Adobe, Exclaimer, domain renewals, etc.) that
-    # are active and due on/before this period. sale_price is the ex-VAT sell.
-    billed_recurring = []
-    recurring_items = db.query(RecurringBillingItem).filter(
-        RecurringBillingItem.customer_id == customer.id,
-        RecurringBillingItem.is_active == True,
-        RecurringBillingItem.next_invoice_date < period_end,
-    ).all()
-    for ri in recurring_items:
-        line_items_data.append((
-            ri.description,
-            _round2(float(ri.quantity)),
-            _round2(float(ri.sale_price)),
-        ))
-        billed_recurring.append(ri)
-
     if not line_items_data:
         return None  # nothing to bill this customer this period
 
@@ -253,9 +208,6 @@ def generate_monthly_invoice_for_customer(db, customer: Customer, period_start: 
     for order in unbilled_orders:
         order.invoiced = True
         order.invoice_id = invoice.id
-
-    for ri in billed_recurring:
-        ri.next_invoice_date = _rb_advance(ri.next_invoice_date, ri.billing_frequency, period_end)
 
     db.commit()
     db.refresh(invoice)
