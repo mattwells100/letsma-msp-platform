@@ -120,7 +120,7 @@
                 <tbody>
                 {% for p in license_prices %}
                     <tr data-price-id="{{ p.id }}">
-                        <td>{{ p.sku_part_number }}</td>
+                        <td>{{ p.friendly_name or p.sku_part_number }}</td>
                         <td>
                             {% if p.customer_id %}
                                 <span class="badge bg-info text-dark">
@@ -155,7 +155,13 @@
                     <label class="form-label small">SKU part number</label>
                     <input type="text" list="knownSkusList" class="form-control form-control-sm" id="newPriceSku" placeholder="e.g. SPB" required>
                     <datalist id="knownSkusList">
-                        {% for sku in known_skus %}<option value="{{ sku }}">{% endfor %}
+                        
+{% for sku_code, sku_name in known_skus %}
+<option value="{{ sku_code }}">
+    {{ sku_name }}
+</option>
+{% endfor %}
+
                     </datalist>
                 </div>
                 <div class="mb-2">
