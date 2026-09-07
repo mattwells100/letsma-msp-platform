@@ -310,13 +310,8 @@ async def send_ticket_reply(db: Session, ticket: Ticket, message: str, author: s
         direction="outbound",
         body=message,
     ))
-    # Log the reply on the ticket timeline too.
-    from app.models import TicketComment
-    db.add(TicketComment(
-        ticket_id=ticket.id,
-        author=author,
-        message=message,
-    ))
+    # Ticket comment already exists when called from the
+    # helpdesk reply workflow. Avoid duplicate comments.
     ticket.updated_at = datetime.utcnow()
     db.commit()
     return result

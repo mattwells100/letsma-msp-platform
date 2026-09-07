@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -8,6 +9,7 @@ from app.database import get_db
 from app import models, schemas
 from app.services import teams_service, whatsapp_service
 from app.services.ticket_numbering import next_ticket_number
+from app.services.whatsapp_service import send_ticket_reply
 
 router = APIRouter(prefix="/api/tickets", tags=["Helpdesk"])
 
@@ -142,6 +144,23 @@ def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Sessio
     ticket.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(comment)
+
+    if (
+        ticket.source == models.TicketSource.WHATSAPP
+        and not comment.is_internal_note
+    ):
+        try:
+            asyncio.run(
+                send_ticket_reply(
+                    db=db,
+                    ticket=ticket,
+                    message=comment.message,
+                    author=comment.author,
+                )
+            )
+        except Exception:
+            pass
+
     return {"id": comment.id, "created_at": comment.created_at}
 
 
