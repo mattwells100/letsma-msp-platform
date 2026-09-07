@@ -7,7 +7,15 @@ Handles:
     * Recognised numbers  -> ticket attached to the matched customer/contact.
     * Unrecognised numbers -> UNASSIGNED ticket (customer_id = NULL) so nothing
       is ever silently dropped; a technician can assign the customer later.
-  - Outbound message sending (e.g. ticket status updates back to the customer).
+  - Outbound message sending:
+    * send_whatsapp_message()  -> free-form text (valid only inside the 24h
+      customer-service window, e.g. an auto-confirmation right after the
+      customer messages in, or a technician reply while the window is open).
+    * send_whatsapp_template() -> approved template (use OUTSIDE the 24h window
+      for business-initiated notifications).
+
+handle_inbound_payload() returns a list of (Ticket, is_new) tuples so callers
+can send a confirmation ONLY for tickets that were freshly created.
 
 Setup:
   1. Create a Meta App -> add "WhatsApp" product -> https://developers.facebook.com/apps
@@ -19,7 +27,7 @@ Setup:
      store them in WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID.
 
 NOTE: Requires Ticket.customer_id to be NULLABLE (unassigned tickets for
-unknown senders). Run the migrate-ticket-nullable-customer migration first.
+unknown senders).
 """
 from datetime import datetime
 from typing import Optional
@@ -33,8 +41,8 @@ from app.services.ticket_numbering import next_ticket_number
 
 GRAPH_WA_BASE = "https://graph.facebook.com/v19.0"
 
-# Ticket statuses considered "still open" for the purpose of threading
-# subsequent inbound messages onto an existing ticket.
+# Ticket statuses considered "still open" for threading subsequent inbound
+# messages onto an existing ticket.
 _OPEN_STATUSES = [
     TicketStatus.NEW,
     TicketStatus.IN_PROGRESS,
@@ -49,16 +57,10 @@ def verify_webhook(mode: str, token: str, challenge: str) -> Optional[str]:
 
 
 def _normalise_number(raw: Optional[str]) -> Optional[str]:
-    """Best-effort normalisation to bare E.164 digits (no '+', spaces or dashes).
-
-    WhatsApp delivers numbers like '447375291017'. Stored contact/customer
-    numbers may be '+44 7375...', '07375...', etc. Normalising both sides
-    massively reduces 'unknown sender' misses caused by formatting alone.
-    """
+    """Best-effort normalisation to bare E.164 digits (no '+', spaces or dashes)."""
     if not raw:
         return raw
     digits = "".join(ch for ch in raw if ch.isdigit())
-    # UK convenience: turn a leading national 0 into the 44 country code.
     if digits.startswith("0"):
         digits = "44" + digits[1:]
     return digits
@@ -68,7 +70,6 @@ def _find_customer_by_number(db: Session, wa_number: str) -> tuple[Optional[Cust
     """Match a sender to a Contact (preferred) or Customer, tolerant of formatting."""
     target = _normalise_number(wa_number)
 
-    # Fast path: exact stored match.
     contact = db.query(Contact).filter(Contact.whatsapp_number == wa_number).first()
     if contact:
         return contact.customer, contact
@@ -76,7 +77,6 @@ def _find_customer_by_number(db: Session, wa_number: str) -> tuple[Optional[Cust
     if customer:
         return customer, None
 
-    # Tolerant path: compare normalised forms across all records that have a number.
     for c in db.query(Contact).filter(Contact.whatsapp_number.isnot(None)).all():
         if _normalise_number(c.whatsapp_number) == target:
             return c.customer, c
@@ -115,22 +115,44 @@ def _find_open_ticket_for_unknown(db: Session, from_number: str) -> Optional[Tic
     if not prior or not prior.ticket_id:
         return None
     ticket = db.query(Ticket).get(prior.ticket_id)
-    if (
-        ticket
-        and ticket.source == TicketSource.WHATSAPP
-        and ticket.status in _OPEN_STATUSES
-    ):
+    if ticket and ticket.source == TicketSource.WHATSAPP and ticket.status in _OPEN_STATUSES:
         return ticket
     return None
 
 
-def handle_inbound_payload(db: Session, payload: dict) -> list[Ticket]:
+def recipient_for_ticket(db: Session, ticket: Ticket) -> Optional[str]:
+    """Resolve the best WhatsApp number to reply to for a given ticket.
+
+    Order of preference:
+      1. contact.whatsapp_number
+      2. customer.whatsapp_number
+      3. the most recent inbound WhatsAppMessage.from_number logged for this ticket
+         (this is what makes replies to UNKNOWN senders work).
+    """
+    if ticket.contact and getattr(ticket.contact, "whatsapp_number", None):
+        return ticket.contact.whatsapp_number
+    if ticket.customer and getattr(ticket.customer, "whatsapp_number", None):
+        return ticket.customer.whatsapp_number
+    last_inbound = (
+        db.query(WhatsAppMessage)
+        .filter(
+            WhatsAppMessage.ticket_id == ticket.id,
+            WhatsAppMessage.direction == "inbound",
+        )
+        .order_by(WhatsAppMessage.id.desc())
+        .first()
+    )
+    return last_inbound.from_number if last_inbound else None
+
+
+def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, bool]]:
     """Parses a WhatsApp Cloud API webhook payload and creates/updates tickets.
 
-    Only the 'messages' array is processed. Delivery receipts arrive under a
-    'statuses' array and are intentionally ignored here.
+    Returns a list of (Ticket, is_new) tuples. `is_new` is True only when the
+    ticket was freshly created by this message (so callers can send a one-time
+    confirmation). Delivery receipts (the 'statuses' array) are ignored.
     """
-    created_or_updated: list[Ticket] = []
+    results: list[tuple[Ticket, bool]] = []
 
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
@@ -142,10 +164,7 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[Ticket]:
                 from_number = msg.get("from")
                 wa_message_id = msg.get("id")
 
-                # --- Idempotency guard -------------------------------------
-                # Meta retries webhooks on any non-2xx / slow response. Skip
-                # messages we've already logged so retries can't duplicate
-                # tickets/comments.
+                # --- Idempotency guard: skip messages we've already logged ---
                 if wa_message_id:
                     already = (
                         db.query(WhatsAppMessage)
@@ -160,7 +179,6 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[Ticket]:
 
                 customer, contact = _find_customer_by_number(db, from_number)
 
-                # Log the raw message for audit purposes regardless of match.
                 log = WhatsAppMessage(
                     customer_id=customer.id if customer else None,
                     wa_message_id=wa_message_id,
@@ -170,12 +188,12 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[Ticket]:
                 )
                 db.add(log)
 
-                # Find an existing open thread (known: by customer; unknown: by number).
                 if customer:
                     open_ticket = _find_open_ticket_for_known(db, customer)
                 else:
                     open_ticket = _find_open_ticket_for_unknown(db, from_number)
 
+                is_new = False
                 if open_ticket:
                     from app.models import TicketComment
                     db.add(TicketComment(
@@ -189,9 +207,7 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[Ticket]:
                     if customer:
                         subject = f"WhatsApp: {body[:60]}"
                     else:
-                        # Unassigned ticket for an unrecognised number.
                         subject = f"WhatsApp (unknown {from_number}): {body[:40]}"
-
                     ticket = Ticket(
                         ticket_number=next_ticket_number(db),
                         customer_id=customer.id if customer else None,
@@ -202,20 +218,21 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[Ticket]:
                         external_ref=wa_message_id,
                     )
                     db.add(ticket)
+                    is_new = True
 
-                # Flush so the ticket gets an id before we back-reference it.
                 db.flush()
                 log.ticket_id = ticket.id
                 db.commit()
                 db.refresh(ticket)
-                created_or_updated.append(ticket)
+                results.append((ticket, is_new))
 
-    return created_or_updated
+    return results
 
 
 async def send_whatsapp_message(to_number: str, message: str) -> dict:
-    """Sends a free-form text message (only valid within a 24h customer-service window,
-    or use an approved template message outside that window)."""
+    """Sends a free-form text message. Valid only within the 24h customer-service
+    window (i.e. the customer messaged us in the last 24h). Outside that window
+    use send_whatsapp_template()."""
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{GRAPH_WA_BASE}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages",
@@ -231,20 +248,86 @@ async def send_whatsapp_message(to_number: str, message: str) -> dict:
         return resp.json()
 
 
+async def send_whatsapp_template(
+    to_number: str,
+    template_name: str,
+    language: str = "en_GB",
+    body_params: Optional[list[str]] = None,
+) -> dict:
+    """Sends an APPROVED template message. Use this for business-initiated
+    notifications OUTSIDE the 24h window (e.g. ticket status updates hours later)."""
+    components = []
+    if body_params:
+        components = [{
+            "type": "body",
+            "parameters": [{"type": "text", "text": p} for p in body_params],
+        }]
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language},
+            **({"components": components} if components else {}),
+        },
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{GRAPH_WA_BASE}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages",
+            headers={"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def send_ticket_reply(db: Session, ticket: Ticket, message: str, author: str = "Letsma") -> Optional[dict]:
+    """Send a technician's reply from the helpdesk out over WhatsApp, and log it.
+
+    Works for both known customers and unknown senders (falls back to the last
+    inbound number on the ticket). Returns the Graph response, or None if there
+    was no number to reply to.
+
+    NOTE: free-form only succeeds inside the 24h window. If the window has
+    closed, the Graph call will raise; callers should catch and fall back to a
+    template if needed.
+    """
+    to_number = recipient_for_ticket(db, ticket)
+    if not to_number:
+        return None
+    result = await send_whatsapp_message(to_number, message)
+    db.add(WhatsAppMessage(
+        customer_id=ticket.customer_id,
+        ticket_id=ticket.id,
+        from_number=to_number,
+        direction="outbound",
+        body=message,
+    ))
+    # Log the reply on the ticket timeline too.
+    from app.models import TicketComment
+    db.add(TicketComment(
+        ticket_id=ticket.id,
+        author=author,
+        message=message,
+    ))
+    ticket.updated_at = datetime.utcnow()
+    db.commit()
+    return result
+
+
 async def notify_ticket_update(db: Session, ticket: Ticket, message: str):
     """Convenience helper to notify a customer's WhatsApp number about a ticket update."""
-    customer = ticket.customer
-    if not customer:
-        # Unassigned ticket (unknown sender) - no customer to notify yet.
+    if not ticket.customer_id:
         return None
-    number = ticket.contact.whatsapp_number if ticket.contact else customer.whatsapp_number
-    if not number:
+    to_number = recipient_for_ticket(db, ticket)
+    if not to_number:
         return None
-    result = await send_whatsapp_message(number, message)
+    result = await send_whatsapp_message(to_number, message)
     db.add(WhatsAppMessage(
-        customer_id=customer.id,
+        customer_id=ticket.customer_id,
         ticket_id=ticket.id,
-        from_number=number,
+        from_number=to_number,
         direction="outbound",
         body=message,
     ))

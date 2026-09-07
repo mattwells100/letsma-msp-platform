@@ -7,6 +7,14 @@ from app.services import whatsapp_service
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["Webhooks - WhatsApp"])
 
+# Message sent back automatically when a NEW ticket is created from an inbound
+# WhatsApp. Safe to send free-form because the customer just messaged us, so
+# the 24h customer-service window is open.
+CONFIRMATION_TEMPLATE = (
+    "✅ Thanks for getting in touch — we've logged your request as "
+    "ticket #{number}. Our team will be in touch shortly.\n— Letsma"
+)
+
 
 @router.get("")
 def verify(
@@ -24,5 +32,25 @@ def verify(
 @router.post("")
 async def receive(request: Request, db: Session = Depends(get_db)):
     payload = await request.json()
-    tickets = whatsapp_service.handle_inbound_payload(db, payload)
-    return {"ok": True, "tickets_touched": [t.id for t in tickets]}
+    results = whatsapp_service.handle_inbound_payload(db, payload)
+
+    # Send a confirmation ONLY for tickets that were newly created by this
+    # payload. Applies to known customers AND unknown senders (we reply to the
+    # inbound number). A failure to confirm must never break the webhook 200,
+    # otherwise Meta will retry and we could double-process.
+    for ticket, is_new in results:
+        if not is_new:
+            continue
+        try:
+            to_number = whatsapp_service.recipient_for_ticket(db, ticket)
+            if to_number:
+                await whatsapp_service.send_whatsapp_message(
+                    to_number,
+                    CONFIRMATION_TEMPLATE.format(number=ticket.ticket_number),
+                )
+        except Exception:
+            # Swallow send errors (e.g. window edge cases) — inbound handling
+            # already succeeded and the ticket exists.
+            pass
+
+    return {"ok": True, "tickets_touched": [t.id for t, _ in results]}
