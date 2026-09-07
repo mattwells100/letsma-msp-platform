@@ -94,6 +94,7 @@ def _find_open_ticket_for_known(db: Session, customer: Customer) -> Optional[Tic
             Ticket.customer_id == customer.id,
             Ticket.source == TicketSource.WHATSAPP,
             Ticket.status.in_(_OPEN_STATUSES),
+            Ticket.deleted_at.is_(None),
         )
         .order_by(Ticket.created_at.desc())
         .first()
@@ -115,7 +116,12 @@ def _find_open_ticket_for_unknown(db: Session, from_number: str) -> Optional[Tic
     if not prior or not prior.ticket_id:
         return None
     ticket = db.query(Ticket).get(prior.ticket_id)
-    if ticket and ticket.source == TicketSource.WHATSAPP and ticket.status in _OPEN_STATUSES:
+    if (
+        ticket
+        and ticket.deleted_at is None
+        and ticket.source == TicketSource.WHATSAPP
+        and ticket.status in _OPEN_STATUSES
+    ):
         return ticket
     return None
 
