@@ -161,7 +161,6 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, boo
             contacts_meta = {c["wa_id"]: c.get("profile", {}).get("name") for c in value.get("contacts", [])}
 
             for msg in messages:
-                print(f"WA webhook message received: {msg}")
                 from_number = msg.get("from")
                 wa_message_id = msg.get("id")
 
@@ -173,19 +172,12 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, boo
                         .first()
                     )
                     if already:
-                        print(f"WA duplicate skipped: {wa_message_id}")
                         continue
 
                 body = msg.get("text", {}).get("body") or f"[{msg.get('type', 'media')} message]"
                 sender_name = contacts_meta.get(from_number, from_number)
 
                 customer, contact = _find_customer_by_number(db, from_number)
-
-                print(
-                    f"WA inbound from={from_number} "
-                    f"customer={'yes' if customer else 'no'} "
-                    f"body={body[:50]}"
-                )
 
                 log = WhatsAppMessage(
                     customer_id=customer.id if customer else None,
@@ -204,7 +196,6 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, boo
                 is_new = False
                 if open_ticket:
                     from app.models import TicketComment
-                    print(f"WA existing ticket found: {open_ticket.ticket_number}")
                     db.add(TicketComment(
                         ticket_id=open_ticket.id,
                         author=sender_name or from_number,
@@ -217,10 +208,6 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, boo
                         subject = f"WhatsApp: {body[:60]}"
                     else:
                         subject = f"WhatsApp (unknown {from_number}): {body[:40]}"
-                    print(
-                        f"WA creating NEW ticket "
-                        f"customer_id={customer.id if customer else None}"
-                    )
                     ticket = Ticket(
                         ticket_number=next_ticket_number(db),
                         customer_id=customer.id if customer else None,
@@ -235,16 +222,7 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, boo
 
                 db.flush()
                 log.ticket_id = ticket.id
-                try:
-                    db.commit()
-                    print(
-                        f"WA commit success "
-                        f"ticket={ticket.ticket_number} "
-                        f"is_new={is_new}"
-                    )
-                except Exception as e:
-                    print(f"WA COMMIT FAILED: {e}")
-                    raise
+                db.commit()
                 db.refresh(ticket)
                 results.append((ticket, is_new))
 
@@ -328,23 +306,13 @@ async def send_ticket_reply(db: Session, ticket: Ticket, message: str, author: s
     ))
     # Log the reply on the ticket timeline too.
     from app.models import TicketComment
-    print(f"WA existing ticket found: {open_ticket.ticket_number}")
-                    db.add(TicketComment(
+    db.add(TicketComment(
         ticket_id=ticket.id,
         author=author,
         message=message,
     ))
     ticket.updated_at = datetime.utcnow()
-    try:
-                    db.commit()
-                    print(
-                        f"WA commit success "
-                        f"ticket={ticket.ticket_number} "
-                        f"is_new={is_new}"
-                    )
-                except Exception as e:
-                    print(f"WA COMMIT FAILED: {e}")
-                    raise
+    db.commit()
     return result
 
 
@@ -363,14 +331,5 @@ async def notify_ticket_update(db: Session, ticket: Ticket, message: str):
         direction="outbound",
         body=message,
     ))
-    try:
-                    db.commit()
-                    print(
-                        f"WA commit success "
-                        f"ticket={ticket.ticket_number} "
-                        f"is_new={is_new}"
-                    )
-                except Exception as e:
-                    print(f"WA COMMIT FAILED: {e}")
-                    raise
+    db.commit()
     return result
