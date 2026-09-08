@@ -150,6 +150,12 @@ def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Sessio
         and not comment.is_internal_note
     ):
         try:
+            print(
+                f"WHATSAPP_REPLY_START "
+                f"ticket={ticket.id} "
+                f"source={ticket.source}"
+            )
+
             asyncio.run(
                 send_ticket_reply(
                     db=db,
@@ -158,8 +164,24 @@ def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Sessio
                     author=comment.author,
                 )
             )
-        except Exception:
-            pass
+
+            print(
+                f"WHATSAPP_REPLY_SUCCESS "
+                f"ticket={ticket.id}"
+            )
+
+        except Exception as ex:
+            import traceback
+
+            print(
+                f"WHATSAPP_REPLY_FAILED "
+                f"ticket={ticket.id} "
+                f"error={ex}"
+            )
+
+            traceback.print_exc()
+
+            raise
 
     return {"id": comment.id, "created_at": comment.created_at}
 
