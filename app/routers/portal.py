@@ -137,7 +137,15 @@ def purchases_page(request: Request, db: Session = Depends(get_db), _=Depends(re
 
 
 @router.get("/tickets")
-def tickets_page(request: Request, unassigned_only: bool = False, db: Session = Depends(get_db), _=Depends(require_login_page)):
+def tickets_page(
+    request: Request,
+    category: str | None = None,
+    subcategory: str | None = None,
+    unclassified: bool = False,
+    unassigned_only: bool = False,
+    db: Session = Depends(get_db),
+    _=Depends(require_login_page),
+):
     """
     unassigned_only=true filters the list down to tickets with no
     customer match - e.g. emails auto-ingested from the helpdesk mailbox
@@ -147,13 +155,39 @@ def tickets_page(request: Request, unassigned_only: bool = False, db: Session = 
     current filter) so the toggle link can show how many are waiting.
     """
     query = db.query(models.Ticket).filter(models.Ticket.deleted_at.is_(None))
+
+    if category:
+        query = query.filter(
+            models.Ticket.category == category
+        )
+
+    if subcategory:
+        query = query.filter(
+            models.Ticket.subcategory.ilike(
+                f"%{subcategory}%"
+            )
+        )
+
+    if unclassified:
+        query = query.filter(
+            models.Ticket.category.is_(None)
+        )
+
     if unassigned_only:
-        query = query.filter(models.Ticket.customer_id.is_(None))
+        query = query.filter(
+            models.Ticket.customer_id.is_(None)
+        )
     tickets = query.order_by(models.Ticket.created_at.desc()).all()
     unassigned_count = db.query(models.Ticket).filter(models.Ticket.customer_id.is_(None)).filter(models.Ticket.deleted_at.is_(None)).count()
     return templates.TemplateResponse("tickets.html", {
-        "request": request, "tickets": tickets, "active_page": "tickets",
-        "unassigned_only": unassigned_only, "unassigned_count": unassigned_count,
+        "request": request,
+        "tickets": tickets,
+        "active_page": "tickets",
+        "category": category,
+        "subcategory": subcategory,
+        "unclassified": unclassified,
+        "unassigned_only": unassigned_only,
+        "unassigned_count": unassigned_count,
     })
 
 
