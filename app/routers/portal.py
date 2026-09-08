@@ -22,6 +22,7 @@ require_login_page to customer_portal().
 """
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.templating import Jinja2Templates
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -31,6 +32,18 @@ from app.deps import require_login_page
 
 router = APIRouter(tags=["Portal"])
 templates = Jinja2Templates(directory="app/templates")
+
+def ukdatetime(value, fmt="%d %b %Y %H:%M"):
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("UTC"))
+    return value.astimezone(
+        ZoneInfo("Europe/London")
+    ).strftime(fmt)
+
+templates.env.filters["ukdatetime"] = ukdatetime
+
 
 
 @router.get("/")
