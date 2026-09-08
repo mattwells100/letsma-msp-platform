@@ -341,6 +341,16 @@ async def categorise_ticket(
     db.commit()
     db.refresh(ticket)
 
+    # Persist classification on ticket
+
+    ticket.category = suggestion.get("category")
+    ticket.subcategory = suggestion.get("subcategory")
+    ticket.estimated_minutes = suggestion.get("estimated_minutes")
+
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
     return {
         "success": True,
         "ticket_id": ticket_id,
