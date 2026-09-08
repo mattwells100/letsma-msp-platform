@@ -111,6 +111,22 @@ def _parse_ticket_classification(raw_value: str) -> dict:
 
     category = str(value.get("category", "")).strip()
     subcategory = str(value.get("subcategory", "")).strip()
+
+    # Normalise common unicode hyphens returned by GPT
+    category = (
+        category
+        .replace("‑", "-")
+        .replace("–", "-")
+        .replace("—", "-")
+    )
+
+    subcategory = (
+        subcategory
+        .replace("‑", "-")
+        .replace("–", "-")
+        .replace("—", "-")
+    )
+
     priority = str(value.get("priority", "Normal")).strip()
     confidence = str(value.get("confidence", "Low")).strip()
     reason = str(value.get("reason", "")).strip()
