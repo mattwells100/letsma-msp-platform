@@ -83,7 +83,19 @@ async def receive_message(
         print(repr(raw_result))
         print("=" * 80)
 
+        
+        print("=" * 80)
+        print("RAW CLASSIFICATION")
+        print(repr(raw_result))
+        print("=" * 80)
+
         suggestion = _parse_ticket_classification(raw_result)
+
+        print("=" * 80)
+        print("SUGGESTION DICT")
+        print(repr(suggestion))
+        print("=" * 80)
+
 
         print("=" * 80)
         print("PARSED CLASSIFICATION")
