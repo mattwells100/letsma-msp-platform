@@ -113,6 +113,103 @@
                 </div>
             </div>
 
+
+            <div class="card border-secondary mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="bi bi-tags"></i>
+                        AI Ticket Categorisation
+                    </span>
+
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        id="btnAiCategorise"
+                        onclick="categoriseTicket()">
+                        AI Categorise
+                    </button>
+                </div>
+
+                <div class="card-body">
+                    <div
+                        id="aiCategoryStatus"
+                        class="small text-muted">
+                        Generate an advisory ticket classification.
+                    </div>
+
+                    <div
+                        id="aiCategoryError"
+                        class="alert alert-danger mt-3 d-none">
+                    </div>
+
+                    <div
+                        id="aiCategoryResult"
+                        class="d-none mt-3">
+
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label">Category</label>
+                                <input
+                                    id="aiCategoryValue"
+                                    class="form-control"
+                                    readonly>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Subcategory</label>
+                                <input
+                                    id="aiSubcategoryValue"
+                                    class="form-control"
+                                    readonly>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label">Priority</label>
+                                <input
+                                    id="aiPriorityValue"
+                                    class="form-control"
+                                    readonly>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label">Effort</label>
+                                <input
+                                    id="aiEffortValue"
+                                    class="form-control"
+                                    readonly>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label">Confidence</label>
+                                <input
+                                    id="aiConfidenceValue"
+                                    class="form-control"
+                                    readonly>
+                            </div>
+                        </div>
+
+                        <label class="form-label mt-3">Reason</label>
+
+                        <textarea
+                            id="aiCategoryReason"
+                            class="form-control"
+                            rows="3"
+                            readonly></textarea>
+
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-outline-secondary mt-3"
+                            onclick="addClassificationAsInternalNote()">
+                            Insert as Internal Note
+                        </button>
+
+                        <div class="small text-muted mt-2">
+                            Review this suggestion before using it.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
 <form class="mt-3" onsubmit="return addComment(event)">
                 <textarea class="form-control mb-2" name="message" placeholder="Add a reply or internal note..." required></textarea>
                 <div class="form-check mb-2">
@@ -364,6 +461,132 @@ function insertSuggestedFixAsInternalNote() {
     });
 }
 
+
+
+let pendingAiClassification = null;
+
+
+async function categoriseTicket() {
+    const button =
+        document.getElementById("btnAiCategorise");
+
+    const status =
+        document.getElementById("aiCategoryStatus");
+
+    const errorBox =
+        document.getElementById("aiCategoryError");
+
+    const resultBox =
+        document.getElementById("aiCategoryResult");
+
+    button.disabled = true;
+    status.textContent = "Analysing ticket...";
+    errorBox.classList.add("d-none");
+
+    try {
+        const response = await fetch(
+            "/api/ai-assist/tickets/{{ ticket.id }}/categorise",
+            {
+                method: "POST",
+                headers: {
+                    "Accept": "application/json"
+                }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.detail ||
+                `Request failed with HTTP ${response.status}`
+            );
+        }
+
+        pendingAiClassification = data.suggestion;
+
+        document.getElementById("aiCategoryValue").value =
+            data.suggestion.category || "";
+
+        document.getElementById("aiSubcategoryValue").value =
+            data.suggestion.subcategory || "";
+
+        document.getElementById("aiPriorityValue").value =
+            data.suggestion.priority || "";
+
+        document.getElementById("aiEffortValue").value =
+            `${data.suggestion.estimated_minutes || ""} minutes`;
+
+        document.getElementById("aiConfidenceValue").value =
+            data.suggestion.confidence || "";
+
+        document.getElementById("aiCategoryReason").value =
+            data.suggestion.reason || "";
+
+        resultBox.classList.remove("d-none");
+
+        status.textContent =
+            "Classification generated. Review before use.";
+
+    } catch (error) {
+        console.error("AI categorisation failed:", error);
+
+        errorBox.textContent =
+            error.message ||
+            "Unable to categorise this ticket.";
+
+        errorBox.classList.remove("d-none");
+        status.textContent = "Categorisation failed.";
+
+    } finally {
+        button.disabled = false;
+    }
+}
+
+
+function addClassificationAsInternalNote() {
+    if (!pendingAiClassification) {
+        return;
+    }
+
+    const replyBox =
+        document.querySelector('textarea[name="message"]');
+
+    const internalNote =
+        document.querySelector(
+            'input[name="is_internal_note"]'
+        );
+
+    if (!replyBox) {
+        return;
+    }
+
+    const item = pendingAiClassification;
+
+    replyBox.value = [
+        "AI suggested ticket classification",
+        "",
+        `Category: ${item.category || ""}`,
+        `Subcategory: ${item.subcategory || ""}`,
+        `Priority: ${item.priority || ""}`,
+        `Estimated effort: ${item.estimated_minutes || ""} minutes`,
+        `Confidence: ${item.confidence || ""}`,
+        "",
+        `Reason: ${item.reason || ""}`,
+        "",
+        "Technician review required."
+    ].join("\n");
+
+    if (internalNote) {
+        internalNote.checked = true;
+    }
+
+    replyBox.focus();
+    replyBox.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+    });
+}
 
 </script>
 
