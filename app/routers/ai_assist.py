@@ -326,16 +326,10 @@ async def categorise_ticket(
     )
 
     try:
-        raw_result = await azure_openai_service.draft_ticket_reply(
-            ticket_subject=f"Ticket categorisation: {ticket.subject}",
-            ticket_description=prompt,
-            customer_name=(
-                customer.name
-                if customer
-                else "Unknown customer"
-            ),
-            comments=comments_data,
-        )
+        raw_result = await azure_openai_service.classify_ticket(
+            prompt
+        ),
+          
 
         suggestion = _parse_ticket_classification(raw_result)
 

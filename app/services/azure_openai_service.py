@@ -263,3 +263,58 @@ async def extract_purchase_from_email(email_subject: str, email_body_text: str, 
         return json.loads(cleaned)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Could not parse Azure OpenAI output as JSON: {exc}. Raw content: {content[:500]}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Ticket classification
+# ---------------------------------------------------------------------------
+
+async def classify_ticket(prompt: str) -> str:
+    if (
+        not settings.AZURE_OPENAI_ENDPOINT
+        or not settings.AZURE_OPENAI_API_KEY
+        or not settings.AZURE_OPENAI_DEPLOYMENT_NAME
+    ):
+        raise RuntimeError("Azure OpenAI is not configured")
+
+    url = (
+        f"{settings.AZURE_OPENAI_ENDPOINT.rstrip('/')}/openai/deployments/"
+        f"{settings.AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions"
+        f"?api-version={AZURE_OPENAI_API_VERSION}"
+    )
+
+    payload = {
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are an IT helpdesk ticket classifier. "
+                    "Return ONLY a JSON object. "
+                    "Do not ask questions. "
+                    "Do not write prose. "
+                    "Do not write markdown."
+                ),
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        "max_completion_tokens": 1000,
+    }
+
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        resp = await client.post(
+            url,
+            headers={
+                "api-key": settings.AZURE_OPENAI_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+        resp.raise_for_status()
+        data = resp.json()
+
+    return data["choices"][0]["message"]["content"].strip()
+
