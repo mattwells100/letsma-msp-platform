@@ -101,31 +101,42 @@ def _find_open_ticket_for_known(db: Session, customer: Customer) -> Optional[Tic
     )
 
 
-def _find_open_ticket_for_unknown(db: Session, from_number: str) -> Optional[Ticket]:
-    """Thread follow-up messages from an unrecognised number onto the same
-    unassigned ticket, matched via the prior WhatsAppMessage log for that number."""
-    prior = (
-        db.query(WhatsAppMessage)
+def _find_open_ticket_for_unknown(
+    db: Session,
+    from_number: str,
+) -> Optional[Ticket]:
+    """Find the newest active WhatsApp ticket linked to this unknown number.
+
+    This queries active tickets inbound WhatsApp message records.
+    It does not rely on WhatsAppMessage.id sorting, because string or UUID IDs
+    do not provide reliable chronological ordering.
+    """
+    normalised_number = "".join(
+        character for character in (from_number or "")
+        if character.isdigit()
+    )
+
+    return (
+        db.query(Ticket)
+        .join(
+            WhatsAppMessage,
+            WhatsAppMessage.ticket_id == Ticket.id,
+        )
         .filter(
-            WhatsAppMessage.from_number == from_number,
+            WhatsAppMessage.from_number == normalised_number,
             WhatsAppMessage.direction == "inbound",
             WhatsAppMessage.ticket_id.isnot(None),
+            Ticket.customer_id.is_(None),
+            Ticket.source == TicketSource.WHATSAPP,
+            Ticket.status.in_(_OPEN_STATUSES),
+            Ticket.deleted_at.is_(None),
         )
-        .order_by(WhatsAppMessage.id.desc())
+        .order_by(
+            Ticket.updated_at.desc(),
+            Ticket.created_at.desc(),
+        )
         .first()
     )
-    if not prior or not prior.ticket_id:
-        return None
-    ticket = db.query(Ticket).get(prior.ticket_id)
-    if (
-        ticket
-        and ticket.deleted_at is None
-        and ticket.source == TicketSource.WHATSAPP
-        and ticket.status in _OPEN_STATUSES
-    ):
-        return ticket
-    return None
-
 
 def recipient_for_ticket(db: Session, ticket: Ticket) -> Optional[str]:
     """Resolve the best WhatsApp number to reply to for a given ticket.
