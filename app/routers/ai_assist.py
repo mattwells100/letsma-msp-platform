@@ -56,3 +56,85 @@ async def draft_ticket_reply(ticket_id: str, db: Session = Depends(get_db)):
         raise HTTPException(502, f"Azure OpenAI request failed: {e}")
 
     return {"ticket_id": ticket_id, "draft_reply": draft}
+
+@router.post("/tickets/{ticket_id}/suggest-fix")
+async def suggest_ticket_fix(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+):
+    """Return an AI-generated troubleshooting suggestion.
+
+    This endpoint is advisory only. It does not modify the ticket,
+    create a comment, or send anything to the customer.
+    """
+    ticket = db.query(models.Ticket).get(ticket_id)
+
+    if not ticket:
+        raise HTTPException(404, "Ticket not found")
+
+    if ticket.deleted_at is not None:
+        raise HTTPException(404, "Ticket not found")
+
+    customer = (
+        db.query(models.Customer).get(ticket.customer_id)
+        if ticket.customer_id
+        else None
+    )
+    customer_name = customer.name if customer else "Unknown customer"
+
+    comments = (
+        db.query(models.TicketComment)
+        .filter_by(ticket_id=ticket_id)
+        .order_by(models.TicketComment.created_at.asc())
+        .all()
+    )
+
+    comments_data = [
+        {
+            "author": comment.author,
+            "message": comment.message,
+            "is_internal_note": comment.is_internal_note,
+        }
+        for comment in comments
+    ]
+
+    analysis_request = (
+        "Act as a senior Microsoft 365 and MSP support engineer. "
+        "Analyse this support issue and produce a practical suggested fix. "
+        "Include these clearly labelled sections:\n"
+        "Problem summary:\n"
+        "Likely cause:\n"
+        "Recommended checks:\n"
+        "Recommended fix:\n"
+        "Customer reply:\n"
+        "Confidence: Low, Medium, or High\n\n"
+        "Do not claim that diagnostic checks have already been performed. "
+        "Do not invent passwords, licences, device details, tenant settings, "
+        "or test results. Keep the customer reply professional and concise.\n\n"
+        f"Original ticket description:\n{ticket.description or 'No description supplied.'}"
+    )
+
+    try:
+        suggestion = await azure_openai_service.draft_ticket_reply(
+            ticket_subject=f"Technical fix analysis: {ticket.subject}",
+            ticket_description=analysis_request,
+            customer_name=customer_name,
+            comments=comments_data,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            502,
+            f"Azure OpenAI request failed: {exc}",
+        )
+
+    return {
+        "success": True,
+        "ticket_id": ticket_id,
+        "suggestion": {
+            "analysis": suggestion,
+            "customer_reply": suggestion,
+        },
+    }
+

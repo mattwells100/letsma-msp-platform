@@ -38,7 +38,82 @@
             {% else %}
                 <div class="text-muted">No comments yet.</div>
             {% endfor %}
-            <form class="mt-3" onsubmit="return addComment(event)">
+            
+            <div class="card border-primary mb-3" id="aiSuggestFixPanel">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span>
+                        <i class="bi bi-lightbulb"></i>
+                        AI Suggested Fix
+                    </span>
+
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline-primary"
+                        id="btnSuggestFix"
+                        onclick="suggestTicketFix()">
+                        Suggest Fix
+                    </button>
+                </div>
+
+                <div class="card-body">
+                    <div
+                        id="aiSuggestFixStatus"
+                        class="small text-muted">
+                        Generate an advisory troubleshooting suggestion from the
+                        ticket description and conversation history.
+                    </div>
+
+                    <div
+                        id="aiSuggestFixError"
+                        class="alert alert-danger mt-3 d-none"
+                        role="alert">
+                    </div>
+
+                    <div id="aiSuggestFixResult" class="d-none mt-3">
+                        <label
+                            for="aiSuggestFixText"
+                            class="form-label fw-semibold">
+                            Suggested analysis and response
+                        </label>
+
+                        <textarea
+                            id="aiSuggestFixText"
+                            class="form-control"
+                            rows="14"
+                            spellcheck="true"></textarea>
+
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-primary"
+                                onclick="insertSuggestedFixIntoReply()">
+                                Insert into Reply
+                            </button>
+
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                onclick="insertSuggestedFixAsInternalNote()">
+                                Insert as Internal Note
+                            </button>
+
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-outline-primary"
+                                onclick="suggestTicketFix()">
+                                Regenerate
+                            </button>
+                        </div>
+
+                        <div class="small text-muted mt-2">
+                            Review and verify the suggestion before sending.
+                            AI output is advisory and may be incomplete.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+<form class="mt-3" onsubmit="return addComment(event)">
                 <textarea class="form-control mb-2" name="message" placeholder="Add a reply or internal note..." required></textarea>
                 <div class="form-check mb-2">
                     <input class="form-check-input" type="checkbox" name="is_internal_note" id="internalNote">
@@ -153,6 +228,143 @@ function copyAiDraftToReplyBox() {
         alert('Could not find the reply box - please copy the draft manually.');
     }
 }
+
+async function suggestTicketFix() {
+    const button = document.getElementById("btnSuggestFix");
+    const status = document.getElementById("aiSuggestFixStatus");
+    const errorBox = document.getElementById("aiSuggestFixError");
+    const resultBox = document.getElementById("aiSuggestFixResult");
+    const suggestionBox = document.getElementById("aiSuggestFixText");
+
+    button.disabled = true;
+    button.innerHTML =
+        '<span class="spinner-border spinner-border-sm me-1" ' +
+        'role="status" aria-hidden="true"></span>Analysing';
+
+    errorBox.classList.add("d-none");
+    errorBox.textContent = "";
+    status.textContent =
+        "Analysing the ticket and conversation history...";
+
+    try {
+        const response = await fetch(
+            "/api/ai-assist/tickets/{{ ticket.id }}/suggest-fix",
+            {
+                method: "POST",
+                headers: {
+                    "Accept": "application/json"
+                }
+            }
+        );
+
+        let data = null;
+
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            throw new Error(
+                "The server returned an unreadable response."
+            );
+        }
+
+        if (!response.ok) {
+            const detail =
+                data && data.detail
+                    ? data.detail
+                    : `Request failed with HTTP ${response.status}`;
+
+            throw new Error(detail);
+        }
+
+        if (
+            !data ||
+            !data.suggestion ||
+            !data.suggestion.analysis
+        ) {
+            throw new Error(
+                "The AI response did not contain a suggestion."
+            );
+        }
+
+        suggestionBox.value = data.suggestion.analysis;
+        resultBox.classList.remove("d-none");
+        status.textContent =
+            "Suggestion generated. Review it before using it.";
+
+    } catch (error) {
+        console.error("Suggest Fix failed:", error);
+
+        errorBox.textContent =
+            error.message ||
+            "Unable to generate a suggestion.";
+
+        errorBox.classList.remove("d-none");
+        status.textContent = "Suggestion generation failed.";
+
+    } finally {
+        button.disabled = false;
+        button.innerHTML =
+            '<i class="bi bi-lightbulb"></i> Suggest Fix';
+    }
+}
+
+
+function insertSuggestedFixIntoReply() {
+    const suggestion =
+        document.getElementById("aiSuggestFixText").value;
+
+    const replyBox =
+        document.querySelector('textarea[name="message"]');
+
+    const internalNote =
+        document.querySelector('input[name="is_internal_note"]');
+
+    if (!replyBox || !suggestion.trim()) {
+        return;
+    }
+
+    replyBox.value = suggestion.trim();
+
+    if (internalNote) {
+        internalNote.checked = false;
+    }
+
+    replyBox.focus();
+    replyBox.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+    });
+}
+
+
+function insertSuggestedFixAsInternalNote() {
+    const suggestion =
+        document.getElementById("aiSuggestFixText").value;
+
+    const replyBox =
+        document.querySelector('textarea[name="message"]');
+
+    const internalNote =
+        document.querySelector('input[name="is_internal_note"]');
+
+    if (!replyBox || !suggestion.trim()) {
+        return;
+    }
+
+    replyBox.value = suggestion.trim();
+
+    if (internalNote) {
+        internalNote.checked = true;
+    }
+
+    replyBox.focus();
+    replyBox.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+    });
+}
+
+
 </script>
 
         <div class="card stat-card p-3 mt-3">
