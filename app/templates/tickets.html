@@ -43,11 +43,12 @@
     </div>
 
     <div class="col-md-3">
-        <input
-            id="subcategoryFilter"
-            class="form-control"
-            placeholder="Subcategory"
-            onchange="applyFilters()">
+        <select
+        id="subcategoryFilter"
+        class="form-select"
+        onchange="applyFilters()">
+        <option value="">All Subcategories</option>
+    </select>
     </div>
 
     <div class="col-md-2">
@@ -239,10 +240,131 @@ async function submitNewTicket() {
     }
 }
 </script>
-{% endblock %}
-
 
 <script>
+
+const categoryMap = {
+    "Microsoft 365": [
+        "Outlook",
+        "Exchange Online",
+        "Teams",
+        "SharePoint",
+        "OneDrive",
+        "Licence Management",
+        "MFA and Authentication",
+        "Entra ID",
+        "Other"
+    ],
+    "Cyber Security": [
+        "Microsoft Defender",
+        "Phishing",
+        "Malware",
+        "Account Compromise",
+        "Conditional Access",
+        "Security Alert",
+        "Other"
+    ],
+    "Device Support": [
+        "Windows",
+        "Mobile Device",
+        "Printer",
+        "Hardware",
+        "Performance",
+        "Updates",
+        "Other"
+    ],
+    "Network": [
+        "Internet",
+        "Wi-Fi",
+        "VPN",
+        "DNS",
+        "Firewall",
+        "Other"
+    ],
+    "Backup and Recovery": [
+        "Backup Failure",
+        "File Restore",
+        "Disaster Recovery",
+        "Other"
+    ],
+    "Application Support": [
+        "Line of Business Application",
+        "Third-Party Application",
+        "Installation",
+        "Other"
+    ],
+    "User Administration": [
+        "New User",
+        "Leaver",
+        "Password Reset",
+        "Permissions",
+        "Shared Mailbox",
+        "Other"
+    ],
+    "Billing and Licensing": [
+        "Invoice Query",
+        "Licence Change",
+        "Subscription",
+        "Other"
+    ],
+    "General Support": [
+        "How-To",
+        "Service Request",
+        "Incident",
+        "Other"
+    ]
+};
+
+function updateSubcategories() {
+
+    const category =
+        document.getElementById("categoryFilter");
+
+    const sub =
+        document.getElementById("subcategoryFilter");
+
+    if (!category || !sub) return;
+
+    const selected = category.value;
+
+    sub.innerHTML =
+        '<option value="">All Subcategories</option>';
+
+    if (!categoryMap[selected]) return;
+
+    categoryMap[selected].forEach(item => {
+
+        const option =
+            document.createElement("option");
+
+        option.value = item;
+        option.textContent = item;
+
+        sub.appendChild(option);
+
+    });
+}
+
+document.addEventListener(
+    "DOMContentLoaded",
+    function () {
+
+        const category =
+            document.getElementById("categoryFilter");
+
+        if (category) {
+
+            category.addEventListener(
+                "change",
+                updateSubcategories
+            );
+
+            updateSubcategories();
+        }
+    }
+);
+
+
 
 function applyFilters() {
 
@@ -287,3 +409,9 @@ function applyFilters() {
 }
 
 </script>
+
+
+{% endblock %}
+
+
+
