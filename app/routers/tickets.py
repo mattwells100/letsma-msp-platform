@@ -21,6 +21,9 @@ SLA_HOURS = {"Critical": 2, "High": 4, "Normal": 8, "Low": 24}
 def list_tickets(
     status: Optional[str] = None,
     customer_id: Optional[str] = None,
+    category: Optional[str] = None,
+    subcategory: Optional[str] = None,
+    unclassified: bool = False,
     unassigned_only: bool = False,
     db: Session = Depends(get_db),
 ):
@@ -29,6 +32,22 @@ def list_tickets(
         q = q.filter(models.Ticket.status == status)
     if customer_id:
         q = q.filter(models.Ticket.customer_id == customer_id)
+
+    if category:
+        q = q.filter(models.Ticket.category == category)
+
+    if subcategory:
+        q = q.filter(
+            models.Ticket.subcategory.ilike(
+                f"%{subcategory}%"
+            )
+        )
+
+    if unclassified:
+        q = q.filter(
+            models.Ticket.category.is_(None)
+        )
+
     if unassigned_only:
         q = q.filter(models.Ticket.customer_id.is_(None))
     return q.order_by(models.Ticket.created_at.desc()).all()

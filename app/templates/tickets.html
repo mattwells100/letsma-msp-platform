@@ -22,6 +22,48 @@
 
 <div id="resultMsg" class="mb-3"></div>
 
+
+<div class="row mb-3">
+
+    <div class="col-md-3">
+        <select id="categoryFilter"
+                class="form-select"
+                onchange="applyFilters()">
+            <option value="">All Categories</option>
+            <option>Microsoft 365</option>
+            <option>Cyber Security</option>
+            <option>Device Support</option>
+            <option>Network</option>
+            <option>Backup and Recovery</option>
+            <option>Application Support</option>
+            <option>User Administration</option>
+            <option>Billing and Licensing</option>
+            <option>General Support</option>
+        </select>
+    </div>
+
+    <div class="col-md-3">
+        <input
+            id="subcategoryFilter"
+            class="form-control"
+            placeholder="Subcategory"
+            onchange="applyFilters()">
+    </div>
+
+    <div class="col-md-2">
+        <div class="form-check mt-2">
+            <input class="form-check-input"
+                   type="checkbox"
+                   id="unclassifiedFilter"
+                   onchange="applyFilters()">
+            <label class="form-check-label">
+                Unclassified
+            </label>
+        </div>
+    </div>
+
+</div>
+
 <div class="card stat-card p-3">
     <table class="table align-middle">
         <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Category</th><th>Subcategory</th><th>Estimate</th><th>Status</th><th>Created</th><th>Updated</th><th class="text-end">Delete</th></tr></thead>
@@ -198,3 +240,50 @@ async function submitNewTicket() {
 }
 </script>
 {% endblock %}
+
+
+<script>
+
+function applyFilters() {
+
+    const params =
+        new URLSearchParams(window.location.search);
+
+    const category =
+        document.getElementById(
+            "categoryFilter"
+        ).value;
+
+    const subcategory =
+        document.getElementById(
+            "subcategoryFilter"
+        ).value;
+
+    const unclassified =
+        document.getElementById(
+            "unclassifiedFilter"
+        ).checked;
+
+    if (category) {
+        params.set("category", category);
+    } else {
+        params.delete("category");
+    }
+
+    if (subcategory) {
+        params.set("subcategory", subcategory);
+    } else {
+        params.delete("subcategory");
+    }
+
+    if (unclassified) {
+        params.set("unclassified", "true");
+    } else {
+        params.delete("unclassified");
+    }
+
+    window.location =
+        "/tickets?" + params.toString();
+}
+
+</script>
