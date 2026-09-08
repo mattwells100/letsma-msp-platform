@@ -108,6 +108,7 @@ def _find_open_ticket_for_unknown(db: Session, from_number: str) -> Optional[Tic
         db.query(WhatsAppMessage)
         .filter(
             WhatsAppMessage.from_number == from_number,
+            WhatsAppMessage.direction == "inbound",
             WhatsAppMessage.ticket_id.isnot(None),
         )
         .order_by(WhatsAppMessage.id.desc())
