@@ -75,7 +75,19 @@ async def receive_message(
         db.refresh(ticket)
 
     except Exception as exc:
-        print("Teams AI classification failed:", exc)
+        import traceback
+
+        print("=" * 80)
+        print("TEAMS AI CLASSIFICATION FAILED")
+        print("Exception:", str(exc))
+        traceback.print_exc()
+        print("=" * 80)
+
+        ticket.category = "AI ERROR"
+        ticket.subcategory = str(exc)[:100]
+
+        db.add(ticket)
+        db.commit()
 
     return {
         "type": "message",
