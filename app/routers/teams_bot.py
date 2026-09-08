@@ -64,7 +64,8 @@ async def receive_message(
         )
 
         raw_result = await azure_openai_service.classify_ticket(
-            text
+            prompt,
+            allowed_categories=AI_TICKET_CATEGORIES,
         )
 
         print("=" * 80)

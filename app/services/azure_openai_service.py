@@ -269,7 +269,7 @@ async def extract_purchase_from_email(email_subject: str, email_body_text: str, 
 # Ticket classification
 # ---------------------------------------------------------------------------
 
-async def classify_ticket(prompt: str) -> str:
+async def classify_ticket(prompt: str, allowed_categories: dict | None = None) -> str:
     if (
         not settings.AZURE_OPENAI_ENDPOINT
         or not settings.AZURE_OPENAI_API_KEY
@@ -288,16 +288,29 @@ async def classify_ticket(prompt: str) -> str:
             {
                 "role": "system",
                 "content": (
-                    "You are an IT helpdesk ticket classifier. "
-                    "Return ONLY a JSON object. "
-                    "Do not ask questions. "
-                    "Do not write prose. "
-                    "Do not write markdown."
+                    "You are a strict IT helpdesk ticket classifier. "
+                    "Return ONLY one JSON object with exactly these keys: "
+                    "category, subcategory, priority, estimated_minutes, "
+                    "confidence, reason. "
+                    "Select category and subcategory only from the allowed "
+                    "taxonomy contained in the user message. "
+                    "Do not create alternative category names. "
+                    "Priority must be exactly Low, Normal, High, or Critical. "
+                    "Confidence must be exactly Low, Medium, or High. "
+                    "estimated_minutes must be an integer from 5 to 480. "
+                    "Do not include issue_summary, probable_causes, "
+                    "recommended_actions, required_information_for_resolution, "
+                    "tags, prose, greetings, explanations, or Markdown."
                 ),
             },
             {
                 "role": "user",
-                "content": prompt,
+                "content": (
+                    "ALLOWED TAXONOMY:\n"
+                    + json.dumps(allowed_categories or {})
+                    + "\n\nCLASSIFICATION REQUEST:\n"
+                    + prompt
+                ),
             },
         ],
         "max_completion_tokens": 1000,
