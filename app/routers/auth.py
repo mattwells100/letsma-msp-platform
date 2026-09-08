@@ -1,4 +1,3 @@
-from zoneinfo import ZoneInfo
 """
 app/routers/auth.py
 
@@ -54,21 +53,6 @@ from app.services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 templates = Jinja2Templates(directory="app/templates")
-
-
-def ukdatetime(value, fmt="%d %b %Y %H:%M"):
-    """Convert a UTC datetime for display in Europe/London."""
-    if value is None:
-        return ""
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=ZoneInfo("UTC"))
-    return value.astimezone(
-        ZoneInfo("Europe/London")
-    ).strftime(fmt)
-
-
-templates.env.filters["ukdatetime"] = ukdatetime
-
 
 
 @router.get("/login")

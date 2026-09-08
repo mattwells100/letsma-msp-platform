@@ -11,9 +11,9 @@
     {% endif %}
 </div>
 <div class="text-muted small mb-2">
-    <i class="bi bi-clock-history"></i> Created {{ ticket.created_at|ukdatetime('%d %b %Y at %H:%M') }}
-    &middot; Last updated {{ ticket.updated_at|ukdatetime('%d %b %Y at %H:%M') }}
-    {% if ticket.resolved_at %} &middot; Resolved {{ ticket.resolved_at|ukdatetime('%d %b %Y at %H:%M') }}{% endif %}
+    <i class="bi bi-clock-history"></i> Created {{ ticket.created_at.strftime('%d %b %Y at %H:%M') }}
+    &middot; Last updated {{ ticket.updated_at.strftime('%d %b %Y at %H:%M') }}
+    {% if ticket.resolved_at %} &middot; Resolved {{ ticket.resolved_at.strftime('%d %b %Y at %H:%M') }}{% endif %}
 </div>
 {% if not ticket.customer and (ticket.reporter_name or ticket.reporter_email) %}
 <div class="alert alert-warning py-2 mb-4">
@@ -31,7 +31,7 @@
             <h5 class="page-title">Activity</h5>
             {% for c in ticket.comments %}
                 <div class="border-bottom py-2">
-                    <strong>{{ c.author }}</strong> <span class="small text-muted">{{ c.created_at|ukdatetime('%d %b %Y %H:%M') }}</span>
+                    <strong>{{ c.author }}</strong> <span class="small text-muted">{{ c.created_at.strftime('%d %b %Y %H:%M') }}</span>
                     {% if c.is_internal_note %}<span class="badge bg-warning text-dark">Internal</span>{% endif %}
                     <div style="white-space: pre-wrap; word-break: break-word;">{{ c.message }}</div>
                 </div>
