@@ -102,7 +102,10 @@ def _parse_ticket_classification(raw_value: str) -> dict:
     end = cleaned.rfind("}")
 
     if start < 0 or end <= start:
-        raise ValueError("AI response did not contain a JSON object")
+        preview = cleaned[:1000] if cleaned else "(empty response)"
+        raise ValueError(
+            f"AI response did not contain a JSON object. Raw response: {preview}"
+        )
 
     value = json.loads(cleaned[start:end + 1])
 
