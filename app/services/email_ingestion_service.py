@@ -488,6 +488,29 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
     db.add(processed)
     db.commit()
 
+    # -------------------------------------------------
+    # Automatic AI categorisation
+    # -------------------------------------------------
+    try:
+        from app.routers.ai_assist import categorise_ticket
+
+        await categorise_ticket(
+            ticket_id=ticket.id,
+            db=db,
+        )
+
+        print(
+            f"AUTO_CLASSIFIED "
+            f"ticket={ticket.ticket_number}"
+        )
+
+    except Exception as exc:
+        print(
+            f"AUTO_CLASSIFICATION_FAILED "
+            f"ticket={ticket.ticket_number} "
+            f"error={exc}"
+        )
+
     # Outbound email is DISABLED BY DEFAULT (see module docstring) - only
     # send anything if explicitly enabled via settings. Note: the
     # confirmation email's subject includes "[Ticket #{number}]" - this
