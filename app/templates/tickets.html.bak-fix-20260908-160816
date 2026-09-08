@@ -1,0 +1,392 @@
+{% extends "base.html" %}
+{% block title %}Helpdesk - Letsma MSP
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="page-title mb-0">Helpdesk Tickets</h2>
+    <div class="d-flex gap-2 align-items-center">
+        {% if unassigned_only %}
+            <a href="/tickets" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-x-lg"></i> Show All Tickets
+            </a>
+        {% else %}
+            <a href="/tickets?unassigned_only=true" class="btn btn-sm btn-outline-warning">
+                <i class="bi bi-person-x"></i> Unassigned
+                {% if unassigned_count %}<span class="badge bg-warning text-dark ms-1">{{ unassigned_count }}</span>{% endif %}
+            </a>
+        {% endif %}
+        <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newTicketModal">
+            <i class="bi bi-plus-lg"></i> New Ticket
+        </button>
+    </div>
+</div>
+
+<div id="resultMsg" class="mb-3"></div>
+
+
+<div class="row mb-3">
+
+    <div class="col-md-3">
+        <select id="categoryFilter"
+                class="form-select"
+                onchange="applyFilters()">
+            <option value="">All Categories</option>
+            <option>Microsoft 365</option>
+            <option>Cyber Security</option>
+            <option>Device Support</option>
+            <option>Network</option>
+            <option>Backup and Recovery</option>
+            <option>Application Support</option>
+            <option>User Administration</option>
+            <option>Billing and Licensing</option>
+            <option>General Support</option>
+        </select>
+    </div>
+
+    <div class="col-md-3">
+        <select
+    		id="subcategoryFilter"
+    		class="form-select"
+    		onchange="applyFilters()">
+    		<option value="">All Subcategories</option>
+</select>
+    </div>
+
+    <div class="col-md-2">
+        <div class="form-check mt-2">
+            <input class="form-check-input"
+                   type="checkbox"
+                   id="unclassifiedFilter"
+                   onchange="applyFilters()">
+            <label class="form-check-label">
+                Unclassified
+            </label>
+        </div>
+    </div>
+
+</div>
+
+<div class="card stat-card p-3">
+    <table class="table align-middle">
+        <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Category</th><th>Subcategory</th><th>Estimate</th><th>Status</th><th>Created</th><th>Updated</th><th class="text-end">Delete</th></tr></thead>
+        <tbody>
+        {% for t in tickets %}
+            <tr onclick="window.location='/tickets/{{ t.id }}'" style="cursor:pointer">
+                <td>{{ t.ticket_number }}</td>
+                <td>{{ t.subject }}</td>
+                <td>
+                    {% if t.customer %}
+                        {{ t.customer.name }}
+                    {% else %}
+                        <span class="badge bg-warning text-dark">Unassigned</span>
+                        {% if t.reporter_email %}<div class="small text-muted">{{ t.reporter_name or t.reporter_email }}</div>{% endif %}
+                    {% endif %}
+                </td>
+                <td class="small text-muted">{{ t.contact.name if t.contact else '-' }}</td>
+                <td>
+                    {% set src = t.source.value if t.source.value is defined else t.source %}
+                    {% if src == 'WhatsApp' %}<i class="bi bi-whatsapp text-success"></i>{% elif src == 'Teams' %}<i class="bi bi-microsoft-teams text-primary"></i>{% elif src == 'Email' %}<i class="bi bi-envelope text-secondary"></i>{% else %}<i class="bi bi-globe"></i>{% endif %}
+                    {{ src }}
+                </td>
+                <td><span class="badge badge-priority-{{ (t.priority.value if t.priority.value is defined else t.priority)|replace(' ','') }}">{{ t.priority.value if t.priority.value is defined else t.priority }}</span></td>
+
+                <td>
+                    {% if t.category %}
+                        <span class="badge bg-info">{{ t.category }}</span>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {{ t.subcategory or '-' }}
+                </td>
+
+                <td>
+                    {% if t.estimated_minutes %}
+                        {{ t.estimated_minutes }}m
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td><span class="badge badge-status-{{ (t.status.value if t.status.value is defined else t.status)|replace(' ','') }}">{{ t.status.value if t.status.value is defined else t.status }}</span></td>
+                <td class="small text-muted">{{ t.created_at|ukdatetime('%d %b %Y %H:%M') }}</td>
+                <td class="small text-muted">{{ t.updated_at|ukdatetime('%d %b %Y %H:%M') }}</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-danger"
+                        onclick="event.stopPropagation(); deleteTicket('{{ t.id }}', '{{ t.ticket_number }}')"
+                        title="Delete ticket"><i class="bi bi-trash"></i></button>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="13" class="text-muted">{% if unassigned_only %}No unassigned tickets.{% else %}No tickets yet.{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="modal fade" id="newTicketModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">New Ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <form id="newTicketForm">
+          <div class="mb-2">
+            <label class="form-label">Customer</label>
+            <select class="form-select" name="customer_id" id="newTicketCustomerSelect" required>
+                <option value="">Loading customers...</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">End User (Contact)</label>
+            <select class="form-select" name="contact_id" id="newTicketContactSelect" disabled>
+                <option value="">-- Select a customer first --</option>
+            </select>
+          </div>
+          <div class="mb-2"><label class="form-label">Subject</label><input class="form-control" name="subject" required></div>
+          <div class="mb-2"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3"></textarea></div>
+          <div class="mb-2">
+            <label class="form-label">Priority</label>
+            <select class="form-select" name="priority">
+                <option>Low</option><option selected>Normal</option><option>High</option><option>Critical</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="submitNewTicket()">Create Ticket</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function deleteTicket(ticketId, ticketNumber) {
+    if (!confirm('Delete ticket #' + ticketNumber + '? It will be hidden from all lists but preserved for audit history.')) return;
+    try {
+        const resp = await fetch('/api/tickets/' + ticketId, {method: 'DELETE'});
+        if (resp.ok) {
+            window.location.reload();
+        } else {
+            const t = await resp.text();
+            document.getElementById('resultMsg').innerHTML =
+                '<div class="alert alert-danger py-2 mb-0">Failed to delete ticket: ' + t + '</div>';
+        }
+    } catch (err) {
+        document.getElementById('resultMsg').innerHTML =
+            '<div class="alert alert-danger py-2 mb-0">Failed to delete ticket: ' + err + '</div>';
+    }
+}
+
+document.getElementById('newTicketModal').addEventListener('show.bs.modal', async () => {
+    const select = document.getElementById('newTicketCustomerSelect');
+    const resp = await fetch('/api/customers/');
+    const customers = await resp.json();
+    select.innerHTML = '<option value="">-- Select a customer --</option>' +
+        customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+    const contactSelect = document.getElementById('newTicketContactSelect');
+    contactSelect.innerHTML = '<option value="">-- Select a customer first --</option>';
+    contactSelect.disabled = true;
+});
+
+document.getElementById('newTicketCustomerSelect').addEventListener('change', async (e) => {
+    const contactSelect = document.getElementById('newTicketContactSelect');
+    const customerId = e.target.value;
+    if (!customerId) {
+        contactSelect.innerHTML = '<option value="">-- Select a customer first --</option>';
+        contactSelect.disabled = true;
+        return;
+    }
+    contactSelect.disabled = false;
+    contactSelect.innerHTML = '<option value="">Loading contacts...</option>';
+    try {
+        const resp = await fetch(`/api/customers/${customerId}/contacts`);
+        if (resp.ok) {
+            const contacts = await resp.json();
+            if (contacts.length === 0) {
+                contactSelect.innerHTML = '<option value="">-- No contacts found for this customer --</option>';
+            } else {
+                contactSelect.innerHTML = '<option value="">-- No specific contact --</option>' +
+                    contacts.map(c => `<option value="${c.id}">${c.name}${c.email ? ' (' + c.email + ')' : ''}</option>`).join('');
+            }
+        } else {
+            contactSelect.innerHTML = '<option value="">-- Could not load contacts --</option>';
+        }
+    } catch (err) {
+        contactSelect.innerHTML = '<option value="">-- Could not load contacts --</option>';
+    }
+});
+
+async function submitNewTicket() {
+    const form = document.getElementById('newTicketForm');
+    const fd = new FormData(form);
+    const payload = {
+        customer_id: fd.get('customer_id'),
+        subject: fd.get('subject'),
+        description: fd.get('description'),
+        priority: fd.get('priority'),
+        source: 'Portal',
+    };
+    const contactId = fd.get('contact_id');
+    if (contactId) payload.contact_id = contactId;
+    if (!payload.customer_id) { alert('Please select a customer'); return; }
+    const resp = await fetch('/api/tickets/', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    if (resp.ok) {
+        const ticket = await resp.json();
+        window.location.href = `/tickets/${ticket.id}`;
+    } else {
+        alert('Failed to create ticket: ' + await resp.text());
+    }
+}
+</script>
+<script>
+
+function applyFilters() {
+
+    const params =
+        new URLSearchParams(window.location.search);
+
+    const category =
+        document.getElementById(
+            "categoryFilter"
+        ).value;
+
+    const subcategory =
+        document.getElementById(
+            "subcategoryFilter"
+        ).value;
+
+    const unclassified =
+        document.getElementById(
+            "unclassifiedFilter"
+        ).checked;
+
+    if (category) {
+        params.set("category", category);
+    } else {
+        params.delete("category");
+    }
+
+    if (subcategory) {
+        params.set("subcategory", subcategory);
+    } else {
+        params.delete("subcategory");
+    }
+
+    if (unclassified) {
+        params.set("unclassified", "true");
+    } else {
+        params.delete("unclassified");
+    }
+
+    window.location =
+        "/tickets?" + params.toString();
+}
+
+</script>
+
+
+<script>
+
+const categoryMap = {
+    "Microsoft 365": ["Outlook","Exchange Online","Teams","SharePoint","OneDrive","Licence Management","MFA and Authentication","Entra ID","Other"],
+    "Cyber Security": ["Microsoft Defender","Phishing","Malware","Account Compromise","Conditional Access","Security Alert","Other"],
+    "Device Support": ["Windows","Mobile Device","Printer","Hardware","Performance","Updates","Other"],
+    "Network": ["Internet","Wi-Fi","VPN","DNS","Firewall","Other"],
+    "Backup and Recovery": ["Backup Failure","File Restore","Disaster Recovery","Other"],
+    "Application Support": ["Line of Business Application","Third-Party Application","Installation","Other"],
+    "User Administration": ["New User","Leaver","Password Reset","Permissions","Shared Mailbox","Other"],
+    "Billing and Licensing": ["Invoice Query","Licence Change","Subscription","Other"],
+    "General Support": ["How-To","Service Request","Incident","Other"]
+};
+
+function updateSubcategories() {
+
+    const category =
+        document.getElementById("categoryFilter");
+
+    const sub =
+        document.getElementById("subcategoryFilter");
+
+    if (!category || !sub) return;
+
+    const selected =
+        category.value;
+
+    sub.innerHTML =
+        '<option value="">All Subcategories</option>';
+
+    if (!categoryMap[selected]) return;
+
+    categoryMap[selected].forEach(item => {
+
+        const option =
+            document.createElement("option");
+
+        option.value = item;
+        option.textContent = item;
+
+        sub.appendChild(option);
+    });
+}
+
+function applyFilters() {
+
+    const params =
+        new URLSearchParams(window.location.search);
+
+    const category =
+        document.getElementById("categoryFilter")?.value;
+
+    const subcategory =
+        document.getElementById("subcategoryFilter")?.value;
+
+    const unclassified =
+        document.getElementById("unclassifiedFilter")?.checked;
+
+    if (category) {
+        params.set("category", category);
+    } else {
+        params.delete("category");
+    }
+
+    if (subcategory) {
+        params.set("subcategory", subcategory);
+    } else {
+        params.delete("subcategory");
+    }
+
+    if (unclassified) {
+        params.set("unclassified", "true");
+    } else {
+        params.delete("unclassified");
+    }
+
+    window.location =
+        "/tickets?" + params.toString();
+}
+
+document.addEventListener(
+    "DOMContentLoaded",
+    function () {
+
+        const category =
+            document.getElementById("categoryFilter");
+
+        if (category) {
+            category.addEventListener(
+                "change",
+                updateSubcategories
+            );
+
+            updateSubcategories();
+        }
+    }
+);
+
+</script>
+
+{% endblock %}
+
+

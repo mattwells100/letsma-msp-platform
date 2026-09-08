@@ -28,6 +28,7 @@ from app.routers import auth as auth_login
 from app.routers import admin_technicians
 from app.routers import purchasing_email_ingestion, purchasing_email_admin
 from app.routers import recurring_billing
+from app.routers import teams_bot
 
 Base.metadata.create_all(bind=engine)
 
@@ -105,6 +106,7 @@ app.include_router(email_ingestion.router, dependencies=[Depends(require_login_j
 # state instead.
 app.include_router(webhooks_whatsapp.router)
 app.include_router(webhooks_teams.router)
+app.include_router(teams_bot.router)
 app.include_router(auth_xero.router)
 
 # Server-rendered portal (dashboard + customer self-service). NOT gated
