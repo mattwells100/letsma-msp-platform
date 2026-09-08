@@ -24,7 +24,7 @@
 
 <div class="card stat-card p-3">
     <table class="table align-middle">
-        <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Status</th><th>Created</th><th>Updated</th><th class="text-end">Delete</th></tr></thead>
+        <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Category</th><th>Subcategory</th><th>Estimate</th><th>Status</th><th>Created</th><th>Updated</th><th class="text-end">Delete</th></tr></thead>
         <tbody>
         {% for t in tickets %}
             <tr onclick="window.location='/tickets/{{ t.id }}'" style="cursor:pointer">
@@ -45,6 +45,27 @@
                     {{ src }}
                 </td>
                 <td><span class="badge badge-priority-{{ (t.priority.value if t.priority.value is defined else t.priority)|replace(' ','') }}">{{ t.priority.value if t.priority.value is defined else t.priority }}</span></td>
+
+                <td>
+                    {% if t.category %}
+                        <span class="badge bg-info">{{ t.category }}</span>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {{ t.subcategory or '-' }}
+                </td>
+
+                <td>
+                    {% if t.estimated_minutes %}
+                        {{ t.estimated_minutes }}m
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
                 <td><span class="badge badge-status-{{ (t.status.value if t.status.value is defined else t.status)|replace(' ','') }}">{{ t.status.value if t.status.value is defined else t.status }}</span></td>
                 <td class="small text-muted">{{ t.created_at|ukdatetime('%d %b %Y %H:%M') }}</td>
                 <td class="small text-muted">{{ t.updated_at|ukdatetime('%d %b %Y %H:%M') }}</td>
@@ -55,7 +76,7 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="10" class="text-muted">{% if unassigned_only %}No unassigned tickets.{% else %}No tickets yet.{% endif %}</td></tr>
+            <tr><td colspan="13" class="text-muted">{% if unassigned_only %}No unassigned tickets.{% else %}No tickets yet.{% endif %}</td></tr>
         {% endfor %}
         </tbody>
     </table>
