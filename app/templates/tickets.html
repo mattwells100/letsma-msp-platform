@@ -30,15 +30,15 @@
                 class="form-select"
                 onchange="applyFilters()">
             <option value="">All Categories</option>
-            <option>Microsoft 365</option>
-            <option>Cyber Security</option>
-            <option>Device Support</option>
-            <option>Network</option>
-            <option>Backup and Recovery</option>
-            <option>Application Support</option>
-            <option>User Administration</option>
-            <option>Billing and Licensing</option>
-            <option>General Support</option>
+            <option value="Microsoft 365" {% if category == "Microsoft 365" %}selected{% endif %}>Microsoft 365</option>
+            <option value="Cyber Security" {% if category == "Cyber Security" %}selected{% endif %}>Cyber Security</option>
+            <option value="Device Support" {% if category == "Device Support" %}selected{% endif %}>Device Support</option>
+            <option value="Network" {% if category == "Network" %}selected{% endif %}>Network</option>
+            <option value="Backup and Recovery" {% if category == "Backup and Recovery" %}selected{% endif %}>Backup and Recovery</option>
+            <option value="Application Support" {% if category == "Application Support" %}selected{% endif %}>Application Support</option>
+            <option value="User Administration" {% if category == "User Administration" %}selected{% endif %}>User Administration</option>
+            <option value="Billing and Licensing" {% if category == "Billing and Licensing" %}selected{% endif %}>Billing and Licensing</option>
+            <option value="General Support" {% if category == "General Support" %}selected{% endif %}>General Support</option>
         </select>
     </div>
 
@@ -340,14 +340,23 @@ function updateSubcategories() {
         option.value = item;
         option.textContent = item;
 
+        if (item === selectedSubcategory) {
+            option.selected = true;
+        }
+
         sub.appendChild(option);
 
     });
 }
 
+
+const selectedSubcategory =
+    "{{ subcategory or '' }}";
+
 document.addEventListener(
     "DOMContentLoaded",
     function () {
+
 
         const category =
             document.getElementById("categoryFilter");
