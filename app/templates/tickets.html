@@ -1,5 +1,51 @@
 {% extends "base.html" %}
-{% block title %}Helpdesk - Letsma MSP{% endblock %}
+{% block title %}Helpdesk - Letsma MSP<script>
+
+function applyFilters() {
+
+    const params =
+        new URLSearchParams(window.location.search);
+
+    const category =
+        document.getElementById(
+            "categoryFilter"
+        ).value;
+
+    const subcategory =
+        document.getElementById(
+            "subcategoryFilter"
+        ).value;
+
+    const unclassified =
+        document.getElementById(
+            "unclassifiedFilter"
+        ).checked;
+
+    if (category) {
+        params.set("category", category);
+    } else {
+        params.delete("category");
+    }
+
+    if (subcategory) {
+        params.set("subcategory", subcategory);
+    } else {
+        params.delete("subcategory");
+    }
+
+    if (unclassified) {
+        params.set("unclassified", "true");
+    } else {
+        params.delete("unclassified");
+    }
+
+    window.location =
+        "/tickets?" + params.toString();
+}
+
+</script>
+
+{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="page-title mb-0">Helpdesk Tickets</h2>
@@ -239,9 +285,6 @@ async function submitNewTicket() {
     }
 }
 </script>
-{% endblock %}
-
-
 <script>
 
 function applyFilters() {
@@ -287,3 +330,7 @@ function applyFilters() {
 }
 
 </script>
+
+{% endblock %}
+
+
