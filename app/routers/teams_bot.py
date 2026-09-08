@@ -63,11 +63,8 @@ async def receive_message(
             f"Ticket description:\\n{text}"
         )
 
-        raw_result = await azure_openai_service.draft_ticket_reply(
-            ticket_subject=f"Ticket categorisation: {ticket.subject}",
-            ticket_description=prompt,
-            customer_name="Teams User",
-            comments=[],
+        raw_result = await azure_openai_service.classify_ticket(
+            text
         )
 
         suggestion = _parse_ticket_classification(raw_result)
