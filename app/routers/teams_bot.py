@@ -24,11 +24,6 @@ async def receive_message(
 ):
     payload = await request.json()
 
-    print("=" * 80)
-    print("TEAMS PAYLOAD")
-    print(json.dumps(payload, indent=2, default=str))
-    print("=" * 80)
-
 
     text = payload.get("text", "").strip()
 
@@ -68,40 +63,10 @@ async def receive_message(
             allowed_categories=AI_TICKET_CATEGORIES,
         )
 
-        print("=" * 80)
-        print("RAW CLASSIFICATION RESPONSE")
-        print(repr(raw_result))
-        print("=" * 80)
-
-        print("=" * 80)
-        print("RAW CLASSIFICATION RESPONSE")
-        print(repr(raw_result))
-        print("=" * 80)
-
         
-        print("=" * 80)
-        print("RAW CLASSIFICATION RESPONSE")
-        print(repr(raw_result))
-        print("=" * 80)
-
         
-        print("=" * 80)
-        print("RAW CLASSIFICATION")
-        print(repr(raw_result))
-        print("=" * 80)
-
         suggestion = _parse_ticket_classification(raw_result)
 
-        print("=" * 80)
-        print("SUGGESTION DICT")
-        print(repr(suggestion))
-        print("=" * 80)
-
-
-        print("=" * 80)
-        print("PARSED CLASSIFICATION")
-        print(suggestion)
-        print("=" * 80)
 
 
         ticket.category = suggestion.get("category")
