@@ -156,6 +156,9 @@ class Ticket(Base):
     description = Column(Text, nullable=True)
     status = Column(Enum(TicketStatus), default=TicketStatus.NEW)
     priority = Column(Enum(TicketPriority), default=TicketPriority.NORMAL)
+    category = Column(String, nullable=True)
+    subcategory = Column(String, nullable=True)
+    estimated_minutes = Column(Integer, nullable=True)
     source = Column(Enum(TicketSource), default=TicketSource.PORTAL)
     assigned_to = Column(String, ForeignKey("technicians.id"), nullable=True)
     external_ref = Column(String, nullable=True)  # e.g. WhatsApp message id, Teams message id, email message id
