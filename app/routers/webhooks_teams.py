@@ -18,9 +18,18 @@ async def receive(request: Request, authorization: str = Header(default=""), db:
     ticket = teams_service.parse_inbound_activity(db, activity)
 
     if ticket:
-        reply_text = f"✅ Ticket #{ticket.ticket_number} logged for {ticket.customer.name}."
+        if ticket.customer:
+            reply_text = (
+                f"✅ Ticket #{ticket.ticket_number} logged "
+                f"for {ticket.customer.name}."
+            )
+        else:
+            reply_text = (
+                f"✅ Ticket #{ticket.ticket_number} logged "
+                f"(customer could not be matched)."
+            )
     else:
-        reply_text = "⚠️ Message logged, but I couldn't match a customer. Please raise this in the portal or include 'for <Customer Name>'."
+        reply_text = "❌ Ticket creation failed."
 
     # Teams outgoing webhooks expect a synchronous Activity-shaped reply
     return {"type": "message", "text": reply_text}

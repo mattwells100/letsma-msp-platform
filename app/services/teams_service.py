@@ -136,19 +136,19 @@ def parse_inbound_activity(db: Session, activity: dict) -> Ticket | None:
     log = TeamsMessage(channel_or_user=channel, direction="inbound", body=text)
     db.add(log)
 
-    ticket = None
-    if customer:
-        ticket = Ticket(
-            ticket_number=next_ticket_number(db),
-            customer_id=customer.id,
-            subject=text[:80],
-            description=f"Logged via Teams by {sender} in '{channel}':\n\n{text}",
-            source=TicketSource.TEAMS,
-        )
-        db.add(ticket)
-        db.commit()
-        db.refresh(ticket)
-        log.ticket_id = ticket.id
+    ticket = Ticket(
+        ticket_number=next_ticket_number(db),
+        customer_id=customer.id if customer else None,
+        subject=text[:80],
+        description=f"Logged via Teams by {sender} in '{channel}':\n\n{text}",
+        source=TicketSource.TEAMS,
+    )
+
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
+    log.ticket_id = ticket.id
 
     db.commit()
     return ticket
