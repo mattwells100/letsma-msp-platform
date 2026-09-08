@@ -328,7 +328,7 @@ async def categorise_ticket(
     try:
         raw_result = await azure_openai_service.classify_ticket(
             prompt
-        ),
+        )
           
 
         suggestion = _parse_ticket_classification(raw_result)
