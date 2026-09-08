@@ -8,7 +8,8 @@ Run locally with:
 
 API docs are auto-generated at /docs (Swagger UI) and /redoc.
 """
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
+from zoneinfo import ZoneInfo, Depends
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -146,3 +147,14 @@ def health_check():
         "agent_key_preview": agent_key_preview,
         "agent_key_length": agent_key_length,
     }
+
+
+@app.template_filter("ukdatetime")
+def ukdatetime(value, fmt="%d %b %Y %H:%M"):
+    if not value:
+        return ""
+    return (
+        value.replace(tzinfo=ZoneInfo("UTC"))
+        .astimezone(ZoneInfo("Europe/London"))
+        .strftime(fmt)
+    )
