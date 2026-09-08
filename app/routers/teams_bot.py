@@ -24,6 +24,12 @@ async def receive_message(
 ):
     payload = await request.json()
 
+    print("=" * 80)
+    print("TEAMS PAYLOAD")
+    print(json.dumps(payload, indent=2, default=str))
+    print("=" * 80)
+
+
     text = payload.get("text", "").strip()
 
     if not text:
