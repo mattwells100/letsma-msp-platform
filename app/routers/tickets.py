@@ -10,6 +10,7 @@ from app import models, schemas
 from app.services import teams_service, whatsapp_service
 from app.services.ticket_numbering import next_ticket_number
 from app.services.whatsapp_service import send_ticket_reply
+from app.services.teams_reply_service import send_teams_reply
 
 router = APIRouter(prefix="/api/tickets", tags=["Helpdesk"])
 
@@ -201,6 +202,26 @@ def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Sessio
             traceback.print_exc()
 
             raise
+
+    if (
+        ticket.source == models.TicketSource.TEAMS
+        and not comment.is_internal_note
+    ):
+        try:
+            print(f"TEAMS_REPLY_START ticket={ticket.id}")
+            asyncio.run(
+                send_teams_reply(
+                    db=db,
+                    ticket=ticket,
+                    message=comment.message,
+                    author=comment.author,
+                )
+            )
+            print(f"TEAMS_REPLY_SUCCESS ticket={ticket.id}")
+        except Exception as ex:
+            import traceback
+            print(f"TEAMS_REPLY_FAILED ticket={ticket.id} error={ex}")
+            traceback.print_exc()
 
     return {"id": comment.id, "created_at": comment.created_at}
 

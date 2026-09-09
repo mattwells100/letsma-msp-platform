@@ -74,6 +74,9 @@ class Settings:
     # Teams
     TEAMS_INCOMING_WEBHOOK_URL: str = os.getenv("TEAMS_INCOMING_WEBHOOK_URL", "")
     TEAMS_OUTGOING_WEBHOOK_SECRET: str = os.getenv("TEAMS_OUTGOING_WEBHOOK_SECRET", "")
+    TEAMS_BOT_APP_ID: str = os.getenv("TEAMS_BOT_APP_ID", "")
+    TEAMS_BOT_APP_SECRET: str = os.getenv("TEAMS_BOT_APP_SECRET", "")
+    TEAMS_BOT_TENANT_ID: str = os.getenv("TEAMS_BOT_TENANT_ID", "")
 
     # Agent
     AGENT_API_KEY: str = os.getenv("AGENT_API_KEY", "letsma-agent-shared-key")
