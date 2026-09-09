@@ -1,0 +1,242 @@
+import asyncio
+from datetime import datetime, timedelta
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app import models, schemas
+from app.services import teams_service, whatsapp_service
+from app.services.ticket_numbering import next_ticket_number
+from app.services.whatsapp_service import send_ticket_reply
+from app.services.teams_reply_service import send_teams_reply
+
+router = APIRouter(prefix="/api/tickets", tags=["Helpdesk"])
+
+# SLA targets (hours) by priority - used to auto-compute sla_due_at
+SLA_HOURS = {"Critical": 2, "High": 4, "Normal": 8, "Low": 24}
+
+
+@router.get("/", response_model=List[schemas.TicketOut])
+def list_tickets(
+    status: Optional[str] = None,
+    customer_id: Optional[str] = None,
+    category: Optional[str] = None,
+    subcategory: Optional[str] = None,
+    unclassified: bool = False,
+    unassigned_only: bool = False,
+    db: Session = Depends(get_db),
+):
+    q = db.query(models.Ticket).filter(models.Ticket.deleted_at.is_(None))
+    if status:
+        q = q.filter(models.Ticket.status == status)
+    if customer_id:
+        q = q.filter(models.Ticket.customer_id == customer_id)
+
+    if category:
+        q = q.filter(models.Ticket.category == category)
+
+    if subcategory:
+        q = q.filter(
+            models.Ticket.subcategory.ilike(
+                f"%{subcategory}%"
+            )
+        )
+
+    if unclassified:
+        q = q.filter(
+            models.Ticket.category.is_(None)
+        )
+
+    if unassigned_only:
+        q = q.filter(models.Ticket.customer_id.is_(None))
+    return q.order_by(models.Ticket.created_at.desc()).all()
+
+
+@router.post("/", response_model=schemas.TicketOut)
+def create_ticket(payload: schemas.TicketCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    if payload.customer_id:
+        customer = db.query(models.Customer).get(payload.customer_id)
+        if not customer:
+            raise HTTPException(404, "Customer not found")
+
+    data = payload.model_dump()
+    priority = data.get("priority") or "Normal"
+
+    ticket = models.Ticket(
+        ticket_number=next_ticket_number(db),
+        customer_id=data.get("customer_id"),  # may be None - tickets can exist unassigned (e.g. auto-ingested emails)
+        contact_id=data.get("contact_id"),
+        subject=data["subject"],
+        description=data.get("description"),
+        priority=priority,
+        source=data.get("source") or "Portal",
+        external_ref=data.get("external_ref"),
+        sla_due_at=datetime.utcnow() + timedelta(hours=SLA_HOURS.get(priority, 8)),
+    )
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
+    # Fire-and-forget Teams notification (does nothing if webhook not configured)
+    background_tasks.add_task(_notify_teams_new_ticket, ticket.id)
+    return ticket
+
+
+async def _notify_teams_new_ticket(ticket_id: str):
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        ticket = db.query(models.Ticket).get(ticket_id)
+        if ticket:
+            await teams_service.notify_new_ticket(ticket, ticket.customer)
+    finally:
+        db.close()
+
+
+@router.get("/{ticket_id}", response_model=schemas.TicketOut)
+def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
+    ticket = db.query(models.Ticket).get(ticket_id)
+    if not ticket:
+        raise HTTPException(404, "Ticket not found")
+    return ticket
+
+
+@router.patch("/{ticket_id}", response_model=schemas.TicketOut)
+def update_ticket(ticket_id: str, payload: schemas.TicketUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    ticket = db.query(models.Ticket).get(ticket_id)
+    if not ticket:
+        raise HTTPException(404, "Ticket not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+
+    # Validate customer_id if being changed - "" or null unassigns.
+    if "customer_id" in updates:
+        new_customer_id = updates["customer_id"]
+        if new_customer_id:
+            customer = db.query(models.Customer).get(new_customer_id)
+            if not customer:
+                raise HTTPException(404, "Customer not found")
+            updates["customer_id"] = new_customer_id
+        else:
+            updates["customer_id"] = None
+
+    for k, v in updates.items():
+        setattr(ticket, k, v)
+
+    if updates.get("status") in ("Resolved", "Closed"):
+        ticket.resolved_at = datetime.utcnow()
+
+    ticket.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(ticket)
+
+    if "status" in updates:
+        background_tasks.add_task(
+            _notify_whatsapp_status, ticket.id,
+            f"Update on ticket #{ticket.ticket_number} ({ticket.subject}): status is now '{updates['status']}'."
+        )
+    return ticket
+
+
+async def _notify_whatsapp_status(ticket_id: str, message: str):
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        ticket = db.query(models.Ticket).get(ticket_id)
+        if ticket:
+            try:
+                await whatsapp_service.notify_ticket_update(db, ticket, message)
+            except Exception:
+                pass  # WhatsApp not configured / customer has no number - safe to ignore in MVP
+    finally:
+        db.close()
+
+
+@router.post("/{ticket_id}/comments")
+def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Session = Depends(get_db)):
+    ticket = db.query(models.Ticket).get(ticket_id)
+    if not ticket:
+        raise HTTPException(404, "Ticket not found")
+    comment = models.TicketComment(ticket_id=ticket_id, **payload.model_dump())
+    db.add(comment)
+    ticket.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(comment)
+
+    if (
+        ticket.source == models.TicketSource.WHATSAPP
+        and not comment.is_internal_note
+    ):
+        try:
+            print(
+                f"WHATSAPP_REPLY_START "
+                f"ticket={ticket.id} "
+                f"source={ticket.source}"
+            )
+
+            asyncio.run(
+                send_ticket_reply(
+                    db=db,
+                    ticket=ticket,
+                    message=comment.message,
+                    author=comment.author,
+                )
+            )
+
+            print(
+                f"WHATSAPP_REPLY_SUCCESS "
+                f"ticket={ticket.id}"
+            )
+
+        except Exception as ex:
+            import traceback
+
+            print(
+                f"WHATSAPP_REPLY_FAILED "
+                f"ticket={ticket.id} "
+                f"error={ex}"
+            )
+
+            traceback.print_exc()
+
+            raise
+
+    if (
+        ticket.source == models.TicketSource.TEAMS
+        and not comment.is_internal_note
+    ):
+        try:
+            print(f"TEAMS_REPLY_START ticket={ticket.id}")
+            asyncio.run(
+                send_teams_reply(
+                    db=db,
+                    ticket=ticket,
+                    message=comment.message,
+                    author=comment.author,
+                )
+            )
+            print(f"TEAMS_REPLY_SUCCESS ticket={ticket.id}")
+        except Exception as ex:
+            import traceback
+            print(f"TEAMS_REPLY_FAILED ticket={ticket.id} error={ex}")
+            traceback.print_exc()
+
+    return {"id": comment.id, "created_at": comment.created_at}
+
+
+@router.delete("/{ticket_id}")
+def delete_ticket(ticket_id: str, db: Session = Depends(get_db)):
+    """
+    Soft-delete a helpdesk ticket: stamps deleted_at so it is hidden from
+    all lists but preserved for audit/history (comments, time entries and
+    any email-ingestion links are all kept intact). Re-runnable.
+    """
+    ticket = db.query(models.Ticket).get(ticket_id)
+    if not ticket:
+        raise HTTPException(404, "Ticket not found")
+    if ticket.deleted_at is None:
+        ticket.deleted_at = datetime.utcnow()
+        db.commit()
+    return {"status": "ok", "deleted": ticket_id}
