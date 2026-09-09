@@ -203,6 +203,14 @@ def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Sessio
 
             raise
 
+
+    print(
+        f"TEAMS_CHECK "
+        f"ticket={ticket.id} "
+        f"source={ticket.source} "
+        f"is_internal={comment.is_internal_note}"
+    )
+
     if (
         ticket.source == models.TicketSource.TEAMS
         and not comment.is_internal_note
