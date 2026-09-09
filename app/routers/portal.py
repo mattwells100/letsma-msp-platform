@@ -20,6 +20,7 @@ contains customer_portal() (the external customer-facing
 staff login - customers don't have Letsma Azure accounts. Do not add
 require_login_page to customer_portal().
 """
+from datetime import datetime
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.templating import Jinja2Templates
 from zoneinfo import ZoneInfo
@@ -177,7 +178,7 @@ def tickets_page(
         query = query.filter(
             models.Ticket.customer_id.is_(None)
         )
-    tickets = query.order_by(models.Ticket.created_at.desc()).all()
+    tickets = query.order_by(models.Ticket.updated_at.desc()).all()
     unassigned_count = db.query(models.Ticket).filter(models.Ticket.customer_id.is_(None)).filter(models.Ticket.deleted_at.is_(None)).count()
     return templates.TemplateResponse("tickets.html", {
         "request": request,
@@ -188,6 +189,7 @@ def tickets_page(
         "unclassified": unclassified,
         "unassigned_only": unassigned_only,
         "unassigned_count": unassigned_count,
+        "now": datetime.utcnow(),
     })
 
 
