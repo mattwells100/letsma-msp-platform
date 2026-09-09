@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Ticket, TicketComment, TicketSource
 from app.services.ticket_numbering import next_ticket_number
+from app.services.teams_reply_service import send_teams_reply
 from app.services.teams_intent_service import detect_intent, TeamsIntent
 from app.routers.ai_assist import (
     _parse_ticket_classification,
@@ -20,6 +21,20 @@ router = APIRouter(
 
 def _reply(text: str) -> dict:
     return {"type": "message", "text": text}
+
+
+def _conversation_ticket(
+    conversation_id,
+    service_url,
+):
+    class _TempTicket:
+        pass
+
+    t = _TempTicket()
+    t.conversation_id = conversation_id
+    t.external_ref = service_url
+    return t
+
 
 
 @router.post("/messages")
@@ -49,13 +64,23 @@ async def receive_message(
 
     if intent == TeamsIntent.HELP:
         print("[TEAMS_INTENT] HELP_TRIGGERED")
-        return _reply(
-            "I can help with:\n\n"
-            "• Create a ticket\n"
-            "• Show my tickets\n"
-            "• Status of 1087\n"
-            "• What's happening with ticket 1087?"
+
+        await send_teams_reply(
+            db=db,
+            ticket=_conversation_ticket(
+                conversation_id,
+                service_url,
+            ),
+            message=(
+                "I can help with:\n\n"
+                "• Create a ticket\n"
+                "• Show my tickets\n"
+                "• Status of 1087\n"
+                "• What's happening with ticket 1087?"
+            ),
         )
+
+        return {}
 
     if intent == TeamsIntent.SHOW_TICKETS:
         print("[TEAMS_INTENT] SHOW_TICKETS_TRIGGERED")
@@ -84,10 +109,19 @@ async def receive_message(
                 f"Status: {t.status.value}"
             )
 
-        return _reply(
-            "Your recent tickets:\n\n"
-            + "\n\n".join(lines)
+        await send_teams_reply(
+            db=db,
+            ticket=_conversation_ticket(
+                conversation_id,
+                service_url,
+            ),
+            message=(
+                "Your recent tickets:\n\n"
+                + "\n\n".join(lines)
+            ),
         )
+        return {}
+
 
     if intent == TeamsIntent.GET_STATUS:
         print(
@@ -108,17 +142,31 @@ async def receive_message(
         )
 
         if not ticket:
-            return _reply(
-                f"Ticket #{ticket_number} was not found."
+            await send_teams_reply(
+                db=db,
+                ticket=_conversation_ticket(
+                    conversation_id,
+                    service_url,
+                ),
+                message=f"Ticket #{ticket_number} was not found.",
             )
+            return {}
 
-        return _reply(
-            f"Ticket #{ticket.ticket_number}\n\n"
-            f"Subject: {ticket.subject}\n"
-            f"Status: {ticket.status.value}\n"
-            f"Last updated: "
-            f"{ticket.updated_at:%d %b %Y %H:%M}"
+        await send_teams_reply(
+            db=db,
+            ticket=_conversation_ticket(
+                conversation_id,
+                service_url,
+            ),
+            message=(
+                f"Ticket #{ticket.ticket_number}\n\n"
+                f"Subject: {ticket.subject}\n"
+                f"Status: {ticket.status.value}\n"
+                f"Last updated: "
+                f"{ticket.updated_at:%d %b %Y %H:%M}"
+            ),
         )
+        return {}
 
     if not text:
         return _reply("Please enter a ticket description.")
