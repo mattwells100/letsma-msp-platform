@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Ticket, TicketComment, TicketSource
 from app.services.ticket_numbering import next_ticket_number
+from app.services.teams_intent_service import detect_intent, TeamsIntent
 from app.routers.ai_assist import (
     _parse_ticket_classification,
     AI_TICKET_CATEGORIES,
@@ -32,6 +33,72 @@ async def receive_message(
         return _reply("")
 
     text = (payload.get("text") or "").strip()
+
+    intent, meta = detect_intent(text)
+
+    if intent == TeamsIntent.HELP:
+        return _reply(
+            "I can help with:\n\n"
+            "• Create a ticket\n"
+            "• Show my tickets\n"
+            "• Status of 1087\n"
+            "• What's happening with ticket 1087?"
+        )
+
+    if intent == TeamsIntent.SHOW_TICKETS:
+        tickets = (
+            db.query(Ticket)
+            .filter(
+                Ticket.conversation_id == conversation_id,
+                Ticket.deleted_at.is_(None),
+            )
+            .order_by(Ticket.updated_at.desc())
+            .limit(10)
+            .all()
+        )
+
+        if not tickets:
+            return _reply(
+                "You do not currently have any tickets."
+            )
+
+        lines = []
+
+        for t in tickets:
+            lines.append(
+                f"#{t.ticket_number} {t.subject}\n"
+                f"Status: {t.status.value}"
+            )
+
+        return _reply(
+            "Your recent tickets:\n\n"
+            + "\n\n".join(lines)
+        )
+
+    if intent == TeamsIntent.GET_STATUS:
+        ticket_number = meta["ticket_number"]
+
+        ticket = (
+            db.query(Ticket)
+            .filter(
+                Ticket.ticket_number == ticket_number,
+                Ticket.deleted_at.is_(None),
+            )
+            .first()
+        )
+
+        if not ticket:
+            return _reply(
+                f"Ticket #{ticket_number} was not found."
+            )
+
+        return _reply(
+            f"Ticket #{ticket.ticket_number}\n\n"
+            f"Subject: {ticket.subject}\n"
+            f"Status: {ticket.status.value}\n"
+            f"Last updated: "
+            f"{ticket.updated_at:%d %b %Y %H:%M}"
+        )
 
     if not text:
         return _reply("Please enter a ticket description.")
