@@ -40,7 +40,15 @@ async def receive_message(
 
     intent, meta = detect_intent(text)
 
+    print(
+        f"[TEAMS_INTENT] "
+        f"intent={intent} "
+        f"text={text!r} "
+        f"meta={meta}"
+    )
+
     if intent == TeamsIntent.HELP:
+        print("[TEAMS_INTENT] HELP_TRIGGERED")
         return _reply(
             "I can help with:\n\n"
             "• Create a ticket\n"
@@ -50,6 +58,8 @@ async def receive_message(
         )
 
     if intent == TeamsIntent.SHOW_TICKETS:
+        print("[TEAMS_INTENT] SHOW_TICKETS_TRIGGERED")
+
         tickets = (
             db.query(Ticket)
             .filter(
@@ -80,6 +90,12 @@ async def receive_message(
         )
 
     if intent == TeamsIntent.GET_STATUS:
+        print(
+            f"[TEAMS_INTENT] "
+            f"GET_STATUS_TRIGGERED "
+            f"ticket={meta.get('ticket_number')}"
+        )
+
         ticket_number = meta["ticket_number"]
 
         ticket = (
