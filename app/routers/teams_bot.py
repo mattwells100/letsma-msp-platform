@@ -38,6 +38,7 @@ async def receive_message(
 
     sender = (payload.get("from") or {}).get("name") or "Teams user"
     conversation_id = (payload.get("conversation") or {}).get("id")
+    service_url = payload.get("serviceUrl")
 
     existing = None
     if conversation_id:
@@ -71,6 +72,7 @@ async def receive_message(
         source=TicketSource.TEAMS,
         reporter_name=sender,
         conversation_id=conversation_id,
+        external_ref=service_url,
     )
 
     db.add(ticket)
