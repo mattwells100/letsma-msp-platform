@@ -4,6 +4,7 @@ from fastapi import Depends
 
 from app.database import get_db
 from app.services import whatsapp_service
+import json
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["Webhooks - WhatsApp"])
 
@@ -32,6 +33,7 @@ def verify(
 @router.post("")
 async def receive(request: Request, db: Session = Depends(get_db)):
     payload = await request.json()
+    print("WHATSAPP_INBOUND " + json.dumps(payload)[:2000])
     results = whatsapp_service.handle_inbound_payload(db, payload)
 
     # Send a confirmation ONLY for tickets that were newly created by this
