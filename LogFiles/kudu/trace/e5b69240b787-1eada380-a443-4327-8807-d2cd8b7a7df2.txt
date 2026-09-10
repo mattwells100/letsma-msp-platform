@@ -1,1 +1,0 @@
-2026-09-05T15:01:17  Startup Request, url: /api/triggeredwebjobs/?api-version=2025-05-01, method: GET, type: request, pid: 838,1,15, ScmType: None

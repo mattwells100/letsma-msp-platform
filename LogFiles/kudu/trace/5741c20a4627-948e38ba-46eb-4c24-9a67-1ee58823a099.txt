@@ -1,3 +1,0 @@
-2026-08-26T11:18:33  Startup Request, url: /logstream, method: GET, type: request, pid: 833,1,5, ScmType: None
-2026-08-26T11:22:33    Error occurred, type: error, text: LogStreamManager: ProcessRequest end
-2026-08-26T11:22:34  Error occurred, type: error, text: LogStreamManager: Inside Reset
