@@ -75,7 +75,7 @@ from app.models import (
     ExcludedEmailSender, AutoReplyRule, ProcessedEmail,
 )
 from app.services.ticket_numbering import next_ticket_number
-from app.services.ai_service import get_openai_client
+from app.services.azure_openai_service import get_openai_client
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
