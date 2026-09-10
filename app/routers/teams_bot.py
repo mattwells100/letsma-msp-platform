@@ -124,18 +124,19 @@ async def receive_message(
 
 
     if intent == TeamsIntent.GET_STATUS:
-        print(
-            f"[TEAMS_INTENT] "
-            f"GET_STATUS_TRIGGERED "
-            f"ticket={meta.get('ticket_number')}"
-        )
+        ticket_number = meta.get("ticket_number")
 
-        ticket_number = meta["ticket_number"]
+        print(
+            f"[TEAMS_INTENT] GET_STATUS_TRIGGERED "
+            f"ticket={ticket_number} "
+            f"conversation={conversation_id}"
+        )
 
         ticket = (
             db.query(Ticket)
             .filter(
                 Ticket.ticket_number == ticket_number,
+                Ticket.conversation_id == conversation_id,
                 Ticket.deleted_at.is_(None),
             )
             .first()
@@ -148,24 +149,76 @@ async def receive_message(
                     conversation_id,
                     service_url,
                 ),
-                message=f"Ticket #{ticket_number} was not found.",
+                message=(
+                    f"I could not find ticket #{ticket_number} "
+                    f"in this Teams conversation."
+                ),
             )
             return {}
 
+        def _display_value(value, fallback="Not set"):
+            if value is None:
+                return fallback
+            return getattr(value, "value", str(value))
+
+        def _display_datetime(value, fallback="Not set"):
+            if value is None:
+                return fallback
+            return value.strftime("%d %b %Y %H:%M")
+
+        status_text = _display_value(ticket.status)
+        priority_text = _display_value(ticket.priority, "Normal")
+
+        category_text = getattr(ticket, "category", None) or "Unclassified"
+        subcategory_text = getattr(ticket, "subcategory", None)
+
+        if subcategory_text:
+            classification_text = (
+                f"{category_text} > {subcategory_text}"
+            )
+        else:
+            classification_text = category_text
+
+        assigned_value = getattr(ticket, "assigned_to", None)
+        assigned_text = _display_value(
+            assigned_value,
+            "Not yet assigned",
+        )
+
+        created_text = _display_datetime(
+            getattr(ticket, "created_at", None)
+        )
+        updated_text = _display_datetime(
+            getattr(ticket, "updated_at", None)
+        )
+
+        resolved_value = getattr(ticket, "resolved_at", None)
+        resolved_text = _display_datetime(
+            resolved_value,
+            "Not resolved",
+        )
+
+        details = [
+            f"Ticket #{ticket.ticket_number}",
+            "",
+            f"Issue: {ticket.subject}",
+            f"Status: {status_text}",
+            f"Priority: {priority_text}",
+            f"Category: {classification_text}",
+            f"Assigned to: {assigned_text}",
+            f"Created: {created_text}",
+            f"Last updated: {updated_text}",
+        ]
+
+        if resolved_value is not None:
+            details.append(f"Resolved or closed: {resolved_text}")
+
         await send_teams_reply(
             db=db,
-            ticket=_conversation_ticket(
-                conversation_id,
-                service_url,
-            ),
-            message=(
-                f"Ticket #{ticket.ticket_number}\n\n"
-                f"Subject: {ticket.subject}\n"
-                f"Status: {ticket.status.value}\n"
-                f"Last updated: "
-                f"{ticket.updated_at:%d %b %Y %H:%M}"
-            ),
+            ticket=ticket,
+            message="\n".join(details),
         )
+
         return {}
 
     if not text:
