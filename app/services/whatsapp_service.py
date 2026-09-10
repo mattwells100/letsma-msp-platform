@@ -249,6 +249,10 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, boo
                     is_new = True
 
                     try:
+                        print(
+                            f"WHATSAPP_CLASSIFICATION_START "
+                            f"ticket={ticket.ticket_number}"
+                        )
                         prompt = (
                             "Return exactly one JSON object with no Markdown. "
                             "The keys must be category, subcategory, priority, "
@@ -275,7 +279,24 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, boo
                         ticket.subcategory = suggestion.get("subcategory")
                         ticket.estimated_minutes = suggestion.get("estimated_minutes")
 
+                        print(
+                            f"WHATSAPP_CLASSIFICATION_RESULT "
+                            f"ticket={ticket.ticket_number} "
+                            f"category={ticket.category} "
+                            f"subcategory={ticket.subcategory} "
+                            f"estimate={ticket.estimated_minutes}"
+                        )
+
                     except Exception as exc:
+                        import traceback
+
+                        print(
+                            f"WHATSAPP_CLASSIFICATION_FAILED "
+                            f"ticket={ticket.ticket_number} "
+                            f"error={repr(exc)}"
+                        )
+
+                        traceback.print_exc()
                         print(
                             "WHATSAPP_CLASSIFICATION_FAILED "
                             f"ticket={ticket.ticket_number} error={exc}"
