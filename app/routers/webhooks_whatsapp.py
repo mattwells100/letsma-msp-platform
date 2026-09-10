@@ -34,7 +34,7 @@ def verify(
 async def receive(request: Request, db: Session = Depends(get_db)):
     payload = await request.json()
     print("WHATSAPP_INBOUND " + json.dumps(payload)[:2000])
-    results = whatsapp_service.handle_inbound_payload(db, payload)
+    results = await whatsapp_service.handle_inbound_payload(db, payload)
 
     # Send a confirmation ONLY for tickets that were newly created by this
     # payload. Applies to known customers AND unknown senders (we reply to the

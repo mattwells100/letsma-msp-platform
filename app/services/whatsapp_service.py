@@ -31,7 +31,6 @@ unknown senders).
 """
 from datetime import datetime
 
-import asyncio
 import json
 
 from app.services import azure_openai_service
@@ -173,7 +172,7 @@ def recipient_for_ticket(db: Session, ticket: Ticket) -> Optional[str]:
     return last_inbound.from_number if last_inbound else None
 
 
-def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, bool]]:
+async def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, bool]]:
     """Parses a WhatsApp Cloud API webhook payload and creates/updates tickets.
 
     Returns a list of (Ticket, is_new) tuples. `is_new` is True only when the
@@ -266,11 +265,9 @@ def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, boo
                             f"Ticket description:\n{body}"
                         )
 
-                        raw_result = asyncio.run(
-                            azure_openai_service.classify_ticket(
-                                prompt,
-                                allowed_categories=AI_TICKET_CATEGORIES,
-                            )
+                        raw_result = await azure_openai_service.classify_ticket(
+                            prompt,
+                            allowed_categories=AI_TICKET_CATEGORIES,
                         )
 
                         suggestion = _parse_ticket_classification(raw_result)
