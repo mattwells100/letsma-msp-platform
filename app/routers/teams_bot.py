@@ -181,6 +181,25 @@ async def receive_message(
             .first()
         )
 
+        if existing:
+            status_value = str(existing.status).upper()
+
+            if any(
+                s in status_value
+                for s in [
+                    "CLOSED",
+                    "RESOLVED",
+                    "COMPLETE",
+                    "COMPLETED",
+                ]
+            ):
+                print(
+                    f"[TEAMS] Existing ticket "
+                    f"{existing.ticket_number} "
+                    f"is closed, creating new ticket"
+                )
+                existing = None
+
     if existing:
         comment = TicketComment(
             ticket_id=existing.id,
