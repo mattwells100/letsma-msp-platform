@@ -545,59 +545,28 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
     }
 
 
-
-MONITORED_MAILBOXES = [
-    settings.HELPDESK_MAILBOX_ADDRESS,
-    settings.MATT_MAILBOX_ADDRESS,
-    settings.CALLAN_MAILBOX_ADDRESS,
-]
-
-# ---------------------------------------------------------------------------
-# Multi-mailbox polling entry point
 # ---------------------------------------------------------------------------
 # Polling entry point
 # ---------------------------------------------------------------------------
-
 async def poll_and_process_helpdesk_inbox(db: Session) -> dict:
+    """Fetches unread messages from the helpdesk inbox and processes each
+    one. Safe to call repeatedly (e.g. every few minutes from a scheduled
+    job) - already-processed and excluded emails are never re-created."""
     token = await _get_helpdesk_app_token()
 
-    all_results = []
-    total_messages = 0
-
     async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{GRAPH_BASE}/users/{settings.HELPDESK_MAILBOX_ADDRESS}/mailFolders/inbox/messages"
+            f"?$filter=isRead eq false&$top=50"
+            f"&$select=id,subject,from,body,receivedDateTime,conversationId",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp.raise_for_status()
+        messages = resp.json().get("value", [])
 
-        for mailbox in MONITORED_MAILBOXES:
+    results = []
+    for message in messages:
+        result = await process_single_email(db, token, message)
+        results.append(result)
 
-            resp = await client.get(
-                f"{GRAPH_BASE}/users/{mailbox}/mailFolders/inbox/messages"
-                f"?$top=50"
-                f"&$select=id,subject,from,body,receivedDateTime,conversationId,isRead",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-
-            resp.raise_for_status()
-
-            messages = [
-                m for m in resp.json().get("value", [])
-                if not m.get("isRead")
-            ]
-
-            total_messages += len(messages)
-
-            for message in messages:
-
-                result = await process_single_email(
-                    db,
-                    token,
-                    message
-                )
-
-                result["mailbox"] = mailbox
-
-                all_results.append(result)
-
-    return {
-        "messages_found": total_messages,
-        "results": all_results,
-    }
-
+    return {"messages_found": len(messages), "results": results}

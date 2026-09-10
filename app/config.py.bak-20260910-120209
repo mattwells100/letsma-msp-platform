@@ -88,8 +88,6 @@ class Settings:
     HELPDESK_GRAPH_CLIENT_ID: str = os.getenv("HELPDESK_GRAPH_CLIENT_ID", "")
     HELPDESK_GRAPH_CLIENT_SECRET: str = os.getenv("HELPDESK_GRAPH_CLIENT_SECRET", "")
     HELPDESK_MAILBOX_ADDRESS: str = os.getenv("HELPDESK_MAILBOX_ADDRESS", "helpdesk@letsma.co.uk")
-    MATT_MAILBOX_ADDRESS: str = os.getenv("MATT_MAILBOX_ADDRESS", "matt.wells@letsma.co.uk")
-    CALLAN_MAILBOX_ADDRESS: str = os.getenv("CALLAN_MAILBOX_ADDRESS", "callan.allen@letsma.co.uk")
 
     # Whether the helpdesk email-to-ticket poller is allowed to send ANY
     # outbound email at all (the keyword-triggered auto-reply rules AND
