@@ -230,6 +230,25 @@ async def receive_message(
     db.refresh(ticket)
 
     try:
+        await send_teams_reply(
+            db=db,
+            ticket=ticket,
+            message=(
+                f"✅ Ticket #{ticket.ticket_number} Created\n\n"
+                f"Issue:\n"
+                f"{ticket.subject}\n\n"
+                f"Status: New\n\n"
+                f"You can ask:\n"
+                f"• Show my tickets\n"
+                f"• Status of {ticket.ticket_number}"
+            ),
+        )
+    except Exception as ex:
+        print(
+            f"[TEAMS] Ticket created reply failed: {ex}"
+        )
+
+    try:
         prompt = (
             "Return exactly one JSON object with no Markdown. "
             "The keys must be category, subcategory, priority, "
