@@ -720,4 +720,3 @@ async def poll_and_process_helpdesk_inbox(db: Session) -> dict:
         "messages_found": total_messages,
         "results": all_results,
     }
-
