@@ -79,15 +79,51 @@ def _find_customer_by_number(db: Session, wa_number: str) -> tuple[Optional[Cust
     """Match a sender to a Contact (preferred) or Customer, tolerant of formatting."""
     target = _normalise_number(wa_number)
 
-    contact = db.query(Contact).filter(Contact.whatsapp_number == wa_number).first()
+    # Exact WhatsApp number
+    contact = db.query(Contact).filter(
+        Contact.whatsapp_number == wa_number
+    ).first()
     if contact:
         return contact.customer, contact
-    customer = db.query(Customer).filter(Customer.whatsapp_number == wa_number).first()
+
+    # Exact mobile number
+    contact = db.query(Contact).filter(
+        Contact.mobile_phone == wa_number
+    ).first()
+    if contact:
+        return contact.customer, contact
+
+    # Exact business phone
+    contact = db.query(Contact).filter(
+        Contact.business_phone == wa_number
+    ).first()
+    if contact:
+        return contact.customer, contact
+
+    customer = db.query(Customer).filter(
+        Customer.whatsapp_number == wa_number
+    ).first()
     if customer:
         return customer, None
 
-    for c in db.query(Contact).filter(Contact.whatsapp_number.isnot(None)).all():
-        if _normalise_number(c.whatsapp_number) == target:
+    for c in db.query(Contact).all():
+
+        if (
+            c.whatsapp_number
+            and _normalise_number(c.whatsapp_number) == target
+        ):
+            return c.customer, c
+
+        if (
+            c.mobile_phone
+            and _normalise_number(c.mobile_phone) == target
+        ):
+            return c.customer, c
+
+        if (
+            c.business_phone
+            and _normalise_number(c.business_phone) == target
+        ):
             return c.customer, c
     for cu in db.query(Customer).filter(Customer.whatsapp_number.isnot(None)).all():
         if _normalise_number(cu.whatsapp_number) == target:
