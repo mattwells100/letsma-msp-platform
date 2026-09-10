@@ -124,7 +124,6 @@ class Contact(Base):
     is_primary = Column(Boolean, default=False)
     graph_user_id = Column(String, nullable=True)     # Entra ID object ID, used to safely re-sync without duplicating
     source = Column(String, default="manual")          # "manual" or "graph_sync"
-
     last_synced_from_graph = Column(DateTime, nullable=True)
 
     customer = relationship("Customer", back_populates="contacts")
