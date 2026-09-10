@@ -1,0 +1,5 @@
+<step title="Incoming Request" date="2026-08-26T10:46:27.073" instance="84f4af" url="/logstream" method="GET" type="request" pid="832,1,5" Host="letsma-msp-5122.scm.azurewebsites.net" User-Agent="AZURECLI/2.89.1 (MSI)" Accept-Encoding="identity" Authorization="Bea..." x-ms-client-request-id="4e78cc6b-a13b-11f1-b439-9c971b8d12eb" X-ARR-LOG-ID="4e78cc6b-a13b-11f1-b439-9c971b8d12eb" CLIENT-IP="187.40.251.175:41010" X-SITE-DEPLOYMENT-ID="letsma-msp-5122" WAS-DEFAULT-HOSTNAME="letsma-msp-5122.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/logstream" X-Client-IP="187.40.251.175" X-Client-Port="41010" >
+  <step title="LogStreamHandlerMiddleware.Invoke" date="2026-08-26T10:46:27.133" /><!-- duration: 848ms -->
+  <step title="Error occurred" date="2026-08-26T10:47:27.975" type="error" text="LogStreamManager: ProcessRequest end" /><!-- duration: 5ms -->
+  <step title="Outgoing response" date="2026-08-26T10:47:27.999" type="response" statusCode="200" statusText="OK" /><!-- duration: 4ms -->
+</step><!-- duration: 60934ms -->

@@ -75,7 +75,7 @@ from app.models import (
     ExcludedEmailSender, AutoReplyRule, ProcessedEmail,
 )
 from app.services.ticket_numbering import next_ticket_number
-
+from app.services.ai_service import get_openai_client
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -720,3 +720,4 @@ async def poll_and_process_helpdesk_inbox(db: Session) -> dict:
         "messages_found": total_messages,
         "results": all_results,
     }
+
