@@ -6,6 +6,10 @@ from app.models import Ticket, TicketComment, TicketSource
 from app.services.ticket_numbering import next_ticket_number
 from app.services.teams_reply_service import send_teams_reply
 from app.services.teams_intent_service import detect_intent, TeamsIntent
+from app.services.teams_conversation_memory import (
+    get_remembered_ticket_number,
+    remember_ticket_number,
+)
 from app.routers.ai_assist import (
     _parse_ticket_classification,
     AI_TICKET_CATEGORIES,
@@ -99,6 +103,14 @@ async def receive_message(
         if not tickets:
             return _reply(
                 "You do not currently have any tickets."
+            )
+
+        # MEMORY_TICKET_LIST
+        if tickets:
+            remember_ticket_number(
+                db=db,
+                conversation_id=conversation_id,
+                ticket_number=tickets[0].ticket_number,
             )
 
         lines = []
@@ -198,6 +210,13 @@ async def receive_message(
             "Not resolved",
         )
 
+        # MEMORY_STATUS_LOOKUP
+        remember_ticket_number(
+            db=db,
+            conversation_id=conversation_id,
+            ticket_number=ticket.ticket_number,
+        )
+
         details = [
             f"Ticket #{ticket.ticket_number}",
             "",
@@ -217,6 +236,175 @@ async def receive_message(
             db=db,
             ticket=ticket,
             message="\n".join(details),
+        )
+
+        return {}
+
+    # MEMORY_FOLLOW_UP_HANDLERS
+    if intent in (
+        TeamsIntent.WHEN_CLOSED,
+        TeamsIntent.WHO_ASSIGNED,
+        TeamsIntent.LATEST_UPDATE,
+    ):
+        remembered_number = get_remembered_ticket_number(
+            db=db,
+            conversation_id=conversation_id,
+        )
+
+        if remembered_number is None:
+            await send_teams_reply(
+                db=db,
+                ticket=_conversation_ticket(
+                    conversation_id,
+                    service_url,
+                ),
+                message=(
+                    "Please reference a ticket first, "
+                    "for example: status of 1098."
+                ),
+            )
+            return {}
+
+        remembered_ticket = (
+            db.query(Ticket)
+            .filter(
+                Ticket.ticket_number == remembered_number,
+                Ticket.conversation_id == conversation_id,
+                Ticket.deleted_at.is_(None),
+            )
+            .first()
+        )
+
+        if not remembered_ticket:
+            await send_teams_reply(
+                db=db,
+                ticket=_conversation_ticket(
+                    conversation_id,
+                    service_url,
+                ),
+                message=(
+                    f"I could not find ticket "
+                    f"#{remembered_number} "
+                    f"in this Teams conversation."
+                ),
+            )
+            return {}
+
+        if intent == TeamsIntent.WHEN_CLOSED:
+            closed_at = getattr(
+                remembered_ticket,
+                "resolved_at",
+                None,
+            )
+
+            if closed_at:
+                response_message = (
+                    f"Ticket "
+                    f"#{remembered_ticket.ticket_number} "
+                    f"was resolved or closed on "
+                    f"{closed_at:%d %b %Y %H:%M}."
+                )
+            else:
+                status_value = getattr(
+                    remembered_ticket.status,
+                    "value",
+                    str(remembered_ticket.status),
+                )
+
+                response_message = (
+                    f"Ticket "
+                    f"#{remembered_ticket.ticket_number} "
+                    f"does not have a closure date recorded. "
+                    f"Current status: {status_value}."
+                )
+
+        elif intent == TeamsIntent.WHO_ASSIGNED:
+            assigned = getattr(
+                remembered_ticket,
+                "assigned_to",
+                None,
+            )
+
+            if assigned:
+                assigned_text = getattr(
+                    assigned,
+                    "value",
+                    str(assigned),
+                )
+            else:
+                assigned_text = "Not yet assigned"
+
+            response_message = (
+                f"Ticket "
+                f"#{remembered_ticket.ticket_number}\n\n"
+                f"Assigned to: {assigned_text}"
+            )
+
+        else:
+            latest_comment = (
+                db.query(TicketComment)
+                .filter(
+                    TicketComment.ticket_id
+                    == remembered_ticket.id
+                )
+                .order_by(
+                    TicketComment.created_at.desc()
+                )
+                .first()
+            )
+
+            if latest_comment:
+                comment_time = getattr(
+                    latest_comment,
+                    "created_at",
+                    None,
+                )
+
+                if comment_time:
+                    comment_time_text = (
+                        comment_time.strftime(
+                            "%d %b %Y %H:%M"
+                        )
+                    )
+                else:
+                    comment_time_text = (
+                        "Time not recorded"
+                    )
+
+                response_message = (
+                    f"Latest update on ticket "
+                    f"#{remembered_ticket.ticket_number}:"
+                    f"\n\n"
+                    f"{latest_comment.message}"
+                    f"\n\n"
+                    f"Posted: {comment_time_text}"
+                )
+            else:
+                updated_at = getattr(
+                    remembered_ticket,
+                    "updated_at",
+                    None,
+                )
+
+                if updated_at:
+                    updated_text = updated_at.strftime(
+                        "%d %b %Y %H:%M"
+                    )
+                else:
+                    updated_text = "Not recorded"
+
+                response_message = (
+                    f"Ticket "
+                    f"#{remembered_ticket.ticket_number} "
+                    f"does not have any comments yet."
+                    f"\n\n"
+                    f"Last ticket update: {updated_text}"
+                )
+
+        await send_teams_reply(
+            db=db,
+            ticket=remembered_ticket,
+            message=response_message,
         )
 
         return {}
@@ -281,6 +469,13 @@ async def receive_message(
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
+
+    # MEMORY_NEW_TICKET
+    remember_ticket_number(
+        db=db,
+        conversation_id=conversation_id,
+        ticket_number=ticket.ticket_number,
+    )
 
     try:
         await send_teams_reply(
