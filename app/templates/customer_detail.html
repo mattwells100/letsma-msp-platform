@@ -104,14 +104,13 @@
         </div>
     </div>
     <table class="table table-sm align-middle" id="contactsTable">
-        <thead><tr><th>Name</th><th>Email</th><th>Mobile Phone</th><th>Role</th><th>Source</th></tr></thead>
+        <thead><tr><th>Name</th> <th>Email</th> <th>Mobile Phone</th> <th>WhatsApp</th> <th>Role</th> <th>Source</th></tr></thead>
         <tbody>
         {% for c in sorted_contacts %}
             <tr>
                 <td>{{ c.name }}{% if c.is_primary %} <span class="badge bg-warning text-dark">Primary</span>{% endif %}</td>
                 <td>{{ c.email or '-' }}</td>
-                <td>{{ c.mobile_phone or '-' }}</td>
-                <td>{{ c.role or '-' }}</td>
+                <td>{{ c.mobile_phone or '-' }}</td> <td> {% if c.metadata_record and c.metadata_record.whatsapp_number %} <span class="badge bg-success">✅ Linked</span> <div class="small text-muted"> {{ c.metadata_record.whatsapp_number }} </div> {% else %} <span class="badge bg-secondary">❌ Not Linked</span> {% endif %} </td> <td>{{ c.role or '-' }}</td>
                 <td>
                     {% if c.source == 'graph_sync' %}
                         <span class="badge bg-info text-dark"><i class="bi bi-microsoft"></i> M365 Sync</span>
@@ -121,7 +120,7 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="5" class="text-muted">No contacts yet - add one manually or click "Sync Contacts" above (requires m365_tenant_id to be set).</td></tr>
+            <tr><td colspan="6" class="text-muted">No contacts yet - add one manually or click "Sync Contacts" above (requires m365_tenant_id to be set).</td></tr>
         {% endfor %}
         </tbody>
     </table>
