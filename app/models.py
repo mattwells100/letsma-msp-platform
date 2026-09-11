@@ -130,6 +130,71 @@ class Contact(Base):
     customer = relationship("Customer", back_populates="contacts")
 
 
+    metadata_record = relationship(
+        "ContactMetadata",
+        uselist=False,
+        back_populates="contact",
+        cascade="all, delete-orphan",
+    )
+
+
+
+class ContactMetadata(Base):
+    __tablename__ = "contact_metadata"
+
+    id = Column(String, primary_key=True, default=gen_id)
+
+    contact_id = Column(
+        String,
+        ForeignKey("contacts.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    graph_user_id = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
+    whatsapp_number = Column(
+        String,
+        nullable=True,
+    )
+
+    notes = Column(
+        Text,
+        nullable=True,
+    )
+
+    preferred_contact_method = Column(
+        String,
+        nullable=True,
+    )
+
+    vip_contact = Column(
+        Boolean,
+        default=False,
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    contact = relationship(
+        "Contact",
+        back_populates="metadata_record",
+    )
+
+
+
 class Technician(Base):
     __tablename__ = "technicians"
 
