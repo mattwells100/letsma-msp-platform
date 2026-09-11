@@ -45,7 +45,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Customer, Contact, Ticket, TicketSource, TicketStatus, WhatsAppMessage, ContactMetadata
+from app.models import Customer, Contact, Ticket, TicketSource, TicketStatus, WhatsAppMessage
 from app.services.ticket_numbering import next_ticket_number
 
 GRAPH_WA_BASE = "https://graph.facebook.com/v19.0"
@@ -78,26 +78,6 @@ def _normalise_number(raw: Optional[str]) -> Optional[str]:
 def _find_customer_by_number(db: Session, wa_number: str) -> tuple[Optional[Customer], Optional[Contact]]:
     """Match a sender to a Contact (preferred) or Customer, tolerant of formatting."""
     target = _normalise_number(wa_number)
-
-
-    # --------------------------------------------------
-    # ContactMetadata exact match
-    # --------------------------------------------------
-
-    metadata = (
-        db.query(ContactMetadata)
-        .filter(
-            ContactMetadata.whatsapp_number == target
-        )
-        .first()
-    )
-
-    if metadata and metadata.contact:
-        return (
-            metadata.contact.customer,
-            metadata.contact,
-        )
-
 
     # Exact WhatsApp number
     contact = db.query(Contact).filter(

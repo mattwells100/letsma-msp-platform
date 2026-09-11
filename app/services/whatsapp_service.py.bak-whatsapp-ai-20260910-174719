@@ -30,22 +30,13 @@ NOTE: Requires Ticket.customer_id to be NULLABLE (unassigned tickets for
 unknown senders).
 """
 from datetime import datetime
-
-import json
-
-from app.services import azure_openai_service
-from app.routers.teams_bot import (
-    AI_TICKET_CATEGORIES,
-    _parse_ticket_classification,
-)
-
 from typing import Optional
 
 import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Customer, Contact, Ticket, TicketSource, TicketStatus, WhatsAppMessage, ContactMetadata
+from app.models import Customer, Contact, Ticket, TicketSource, TicketStatus, WhatsAppMessage
 from app.services.ticket_numbering import next_ticket_number
 
 GRAPH_WA_BASE = "https://graph.facebook.com/v19.0"
@@ -79,71 +70,15 @@ def _find_customer_by_number(db: Session, wa_number: str) -> tuple[Optional[Cust
     """Match a sender to a Contact (preferred) or Customer, tolerant of formatting."""
     target = _normalise_number(wa_number)
 
-
-    # --------------------------------------------------
-    # ContactMetadata exact match
-    # --------------------------------------------------
-
-    metadata = (
-        db.query(ContactMetadata)
-        .filter(
-            ContactMetadata.whatsapp_number == target
-        )
-        .first()
-    )
-
-    if metadata and metadata.contact:
-        return (
-            metadata.contact.customer,
-            metadata.contact,
-        )
-
-
-    # Exact WhatsApp number
-    contact = db.query(Contact).filter(
-        Contact.whatsapp_number == wa_number
-    ).first()
+    contact = db.query(Contact).filter(Contact.whatsapp_number == wa_number).first()
     if contact:
         return contact.customer, contact
-
-    # Exact mobile number
-    contact = db.query(Contact).filter(
-        Contact.mobile_phone == wa_number
-    ).first()
-    if contact:
-        return contact.customer, contact
-
-    # Exact business phone
-    contact = db.query(Contact).filter(
-        Contact.business_phone == wa_number
-    ).first()
-    if contact:
-        return contact.customer, contact
-
-    customer = db.query(Customer).filter(
-        Customer.whatsapp_number == wa_number
-    ).first()
+    customer = db.query(Customer).filter(Customer.whatsapp_number == wa_number).first()
     if customer:
         return customer, None
 
-    for c in db.query(Contact).all():
-
-        if (
-            c.whatsapp_number
-            and _normalise_number(c.whatsapp_number) == target
-        ):
-            return c.customer, c
-
-        if (
-            c.mobile_phone
-            and _normalise_number(c.mobile_phone) == target
-        ):
-            return c.customer, c
-
-        if (
-            c.business_phone
-            and _normalise_number(c.business_phone) == target
-        ):
+    for c in db.query(Contact).filter(Contact.whatsapp_number.isnot(None)).all():
+        if _normalise_number(c.whatsapp_number) == target:
             return c.customer, c
     for cu in db.query(Customer).filter(Customer.whatsapp_number.isnot(None)).all():
         if _normalise_number(cu.whatsapp_number) == target:
@@ -228,7 +163,7 @@ def recipient_for_ticket(db: Session, ticket: Ticket) -> Optional[str]:
     return last_inbound.from_number if last_inbound else None
 
 
-async def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, bool]]:
+def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticket, bool]]:
     """Parses a WhatsApp Cloud API webhook payload and creates/updates tickets.
 
     Returns a list of (Ticket, is_new) tuples. `is_new` is True only when the
@@ -302,58 +237,6 @@ async def handle_inbound_payload(db: Session, payload: dict) -> list[tuple[Ticke
                     )
                     db.add(ticket)
                     is_new = True
-
-                    try:
-                        print(
-                            f"WHATSAPP_CLASSIFICATION_START "
-                            f"ticket={ticket.ticket_number}"
-                        )
-                        prompt = (
-                            "Return exactly one JSON object with no Markdown. "
-                            "The keys must be category, subcategory, priority, "
-                            "estimated_minutes, confidence and reason.\n\n"
-                            "Allowed categories and subcategories:\n"
-                            f"{json.dumps(AI_TICKET_CATEGORIES)}\n\n"
-                            "Priority must be Low, Normal, High or Critical. "
-                            "Confidence must be Low, Medium or High. "
-                            "estimated_minutes must be between 5 and 480. "
-                            "Use only the supplied ticket evidence.\n\n"
-                            f"Ticket description:\n{body}"
-                        )
-
-                        raw_result = await azure_openai_service.classify_ticket(
-                            prompt,
-                            allowed_categories=AI_TICKET_CATEGORIES,
-                        )
-
-                        suggestion = _parse_ticket_classification(raw_result)
-
-                        ticket.category = suggestion.get("category")
-                        ticket.subcategory = suggestion.get("subcategory")
-                        ticket.estimated_minutes = suggestion.get("estimated_minutes")
-
-                        print(
-                            f"WHATSAPP_CLASSIFICATION_RESULT "
-                            f"ticket={ticket.ticket_number} "
-                            f"category={ticket.category} "
-                            f"subcategory={ticket.subcategory} "
-                            f"estimate={ticket.estimated_minutes}"
-                        )
-
-                    except Exception as exc:
-                        import traceback
-
-                        print(
-                            f"WHATSAPP_CLASSIFICATION_FAILED "
-                            f"ticket={ticket.ticket_number} "
-                            f"error={repr(exc)}"
-                        )
-
-                        traceback.print_exc()
-                        print(
-                            "WHATSAPP_CLASSIFICATION_FAILED "
-                            f"ticket={ticket.ticket_number} error={exc}"
-                        )
 
                 db.flush()
                 log.ticket_id = ticket.id
