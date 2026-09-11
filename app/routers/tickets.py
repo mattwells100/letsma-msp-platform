@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -13,6 +14,13 @@ from app.services.whatsapp_service import send_ticket_reply
 from app.services.teams_reply_service import send_teams_reply
 
 router = APIRouter(prefix="/api/tickets", tags=["Helpdesk"])
+
+
+class TicketWhatsAppLinkRequest(BaseModel):
+    customer_id: str
+    contact_id: str
+    whatsapp_number: str
+
 
 # SLA targets (hours) by priority - used to auto-compute sla_due_at
 SLA_HOURS = {"Critical": 2, "High": 4, "Normal": 8, "Low": 24}
@@ -232,6 +240,86 @@ def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Sessio
             traceback.print_exc()
 
     return {"id": comment.id, "created_at": comment.created_at}
+
+
+
+
+@router.post("/{ticket_id}/link-whatsapp-contact")
+def link_whatsapp_contact_to_ticket(
+    ticket_id: str,
+    payload: TicketWhatsAppLinkRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Link a WhatsApp sender to a known contact and update ContactMetadata.
+    """
+
+    ticket = db.query(models.Ticket).get(ticket_id)
+
+    if not ticket:
+        raise HTTPException(404, "Ticket not found")
+
+    customer = db.query(models.Customer).get(
+        payload.customer_id
+    )
+
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+
+    contact = (
+        db.query(models.Contact)
+        .filter(
+            models.Contact.id == payload.contact_id,
+            models.Contact.customer_id == customer.id,
+        )
+        .first()
+    )
+
+    if not contact:
+        raise HTTPException(
+            404,
+            "Contact not found",
+        )
+
+    number = "".join(
+        c for c in payload.whatsapp_number
+        if c.isdigit()
+    )
+
+    metadata = (
+        db.query(models.ContactMetadata)
+        .filter(
+            models.ContactMetadata.contact_id
+            == contact.id
+        )
+        .first()
+    )
+
+    if metadata is None:
+
+        metadata = models.ContactMetadata(
+            contact_id=contact.id,
+            graph_user_id=contact.graph_user_id,
+        )
+
+        db.add(metadata)
+
+    metadata.whatsapp_number = number
+
+    ticket.customer_id = customer.id
+
+    if hasattr(ticket, "contact_id"):
+        ticket.contact_id = contact.id
+
+    db.commit()
+
+    return {
+        "success": True,
+        "ticket_id": ticket.id,
+        "customer": customer.name,
+        "contact": contact.name,
+        "whatsapp_number": number,
+    }
 
 
 @router.delete("/{ticket_id}")
