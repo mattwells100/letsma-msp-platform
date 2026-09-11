@@ -7,6 +7,7 @@ re-sync can repopulate them correctly - e.g. after fixing the guest-user
 exclusion logic, this lets you remove contacts that were synced before
 the fix without needing direct database access.
 """
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -51,3 +52,94 @@ def reset_synced_contacts(customer_id: str, db: Session = Depends(get_db)):
     )
     db.commit()
     return {"ok": True, "customer": customer.name, "deleted_contacts": deleted_count}
+
+
+
+class WhatsAppLinkRequest(BaseModel):
+    contact_id: str
+    whatsapp_number: str
+
+
+def _normalise_whatsapp(number: str) -> str:
+    return "".join(
+        ch for ch in (number or "")
+        if ch.isdigit()
+    )
+
+
+@router.post("/link-whatsapp")
+def link_whatsapp_number(
+    payload: WhatsAppLinkRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Permanently link a WhatsApp number to a contact.
+    Stored in ContactMetadata so it survives
+    Graph contact re-sync operations.
+    """
+
+    contact = (
+        db.query(models.Contact)
+        .filter(
+            models.Contact.id == payload.contact_id
+        )
+        .first()
+    )
+
+    if not contact:
+        raise HTTPException(
+            404,
+            "Contact not found"
+        )
+
+    normalised = _normalise_whatsapp(
+        payload.whatsapp_number
+    )
+
+    existing = (
+        db.query(models.ContactMetadata)
+        .filter(
+            models.ContactMetadata.whatsapp_number
+            == normalised,
+            models.ContactMetadata.contact_id
+            != contact.id,
+        )
+        .first()
+    )
+
+    if existing:
+        raise HTTPException(
+            409,
+            "WhatsApp number already linked"
+        )
+
+    metadata = (
+        db.query(models.ContactMetadata)
+        .filter(
+            models.ContactMetadata.contact_id
+            == contact.id
+        )
+        .first()
+    )
+
+    if metadata is None:
+
+        metadata = models.ContactMetadata(
+            contact_id=contact.id,
+            graph_user_id=contact.graph_user_id,
+        )
+
+        db.add(metadata)
+
+    metadata.whatsapp_number = normalised
+
+    db.commit()
+    db.refresh(metadata)
+
+    return {
+        "success": True,
+        "contact_id": contact.id,
+        "contact_name": contact.name,
+        "whatsapp_number": metadata.whatsapp_number,
+    }
+
