@@ -7,7 +7,7 @@ import sys
 import py_compile
 
 FILES = {
-    "app/models/teams_ticket_state.py": r'''
+    "app/services/teams_ticket_state.py": r'''
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -146,7 +146,7 @@ class TeamsTicketDraft:
     "app/services/teams_ticket_state_service.py": r'''
 from typing import Dict
 
-from app.models.teams_ticket_state import (
+from app.services.teams_ticket_state import (
     TeamsTicketDraft,
 )
 
@@ -260,7 +260,7 @@ for file_path, content in FILES.items():
 try:
 
     py_compile.compile(
-        "app/models/teams_ticket_state.py",
+        "app/services/teams_ticket_state.py",
         doraise=True
     )
 
@@ -296,6 +296,6 @@ for file_path in FILES:
 
 print()
 print("Validate:")
-print("python -m py_compile app/models/teams_ticket_state.py")
+print("python -m py_compile app/services/teams_ticket_state.py")
 print("python -m py_compile app/services/teams_ticket_state_service.py")
 print('python -c "import app.main; print(\'IMPORT OK\')"')

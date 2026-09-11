@@ -1,6 +1,6 @@
 from typing import Dict
 
-from app.models.teams_ticket_state import (
+from app.services.teams_ticket_state import (
     TeamsTicketDraft,
 )
 

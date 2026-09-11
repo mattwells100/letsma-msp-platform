@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from app.models.teams_ticket_state import (
+from app.services.teams_ticket_state import (
     TeamsTicketDraft,
     TicketDraftState,
 )
