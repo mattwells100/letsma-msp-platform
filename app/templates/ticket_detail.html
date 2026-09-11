@@ -276,6 +276,46 @@
             </select>
         </div>
 
+
+<!-- LETSMA_WHATSAPP_LINK_UI_START -->
+{% set ticket_source = ticket.source.value if ticket.source.value is defined else ticket.source %}
+{% if ticket_source|string|lower == 'whatsapp' %}
+<div class="card stat-card p-3 mt-3" id="whatsappLinkCard">
+    <h6 class="page-title">
+        <i class="bi bi-whatsapp"></i>
+        WhatsApp Linking
+    </h6>
+
+    <p class="small text-muted mb-2">
+        Link this sender to the selected customer and end user.
+        Future messages from the same number will then match automatically.
+    </p>
+
+    <div class="alert alert-light border py-2 mb-2">
+        <div class="small text-muted">Detected WhatsApp number</div>
+        <strong id="detectedWhatsappNumber">Detecting...</strong>
+    </div>
+
+    <button
+        type="button"
+        class="btn btn-success btn-sm w-100"
+        id="btnLinkWhatsappContact"
+        onclick="linkWhatsappContact()"
+    >
+        <i class="bi bi-link-45deg"></i>
+        Link Current Contact
+    </button>
+
+    <div
+        id="whatsappLinkResult"
+        class="small mt-2"
+        role="status"
+        aria-live="polite"
+    ></div>
+</div>
+{% endif %}
+<!-- LETSMA_WHATSAPP_LINK_UI_END -->
+
 <div class="card stat-card p-3 mt-3">
     <h6 class="page-title"><i class="bi bi-stars"></i> AI-Drafted Reply</h6>
     <p class="small text-muted mb-2">Generates a suggested reply based on this ticket's description and conversation so far. Always review and edit before sending - nothing is posted automatically.</p>
@@ -729,5 +769,218 @@ async function logTime(e) {
         select.innerHTML = '<option value="">-- Could not load contacts --</option>';
     }
 })();
+
+
+// LETSMA_WHATSAPP_LINK_JS_START
+
+function extractWhatsappNumber() {
+    /*
+     * Unknown WhatsApp ticket subjects currently use:
+     * WhatsApp (unknown 447511183376): Problem with email bouncing
+     *
+     * The subject is displayed in the h2.page-title heading.
+     */
+    const heading = document.querySelector("h2.page-title");
+
+    if (!heading) {
+        return null;
+    }
+
+    const headingText = heading.textContent || "";
+
+    const unknownMatch = headingText.match(
+        /WhatsApp\s*\(\s*unknown\s+(\+?\d[\d\s()-]{7,20})\s*\)/i
+    );
+
+    if (unknownMatch) {
+        return unknownMatch[1].replace(/\D/g, "");
+    }
+
+    /*
+     * Fallback for any future subject variation containing an
+     * international-style telephone number after "WhatsApp".
+     */
+    const fallbackMatch = headingText.match(
+        /WhatsApp.*?(\+?\d[\d\s()-]{7,20})/i
+    );
+
+    if (!fallbackMatch) {
+        return null;
+    }
+
+    const digits = fallbackMatch[1].replace(/\D/g, "");
+
+    return digits.length >= 8 && digits.length <= 15
+        ? digits
+        : null;
+}
+
+
+function setWhatsappLinkMessage(message, type) {
+    const result = document.getElementById("whatsappLinkResult");
+
+    if (!result) {
+        return;
+    }
+
+    const classes = {
+        success: "alert alert-success py-2 mb-0",
+        danger: "alert alert-danger py-2 mb-0",
+        info: "alert alert-info py-2 mb-0"
+    };
+
+    result.className =
+        classes[type] || "small mt-2";
+
+    result.textContent = message;
+}
+
+
+async function linkWhatsappContact() {
+    const customerSelect =
+        document.getElementById("ticketCustomerSelect");
+
+    const contactSelect =
+        document.getElementById("ticketContactSelect");
+
+    const button =
+        document.getElementById("btnLinkWhatsappContact");
+
+    if (!customerSelect || !contactSelect || !button) {
+        setWhatsappLinkMessage(
+            "The customer or end-user controls could not be found.",
+            "danger"
+        );
+        return;
+    }
+
+    const customerId = customerSelect.value;
+    const contactId = contactSelect.value;
+    const whatsappNumber = extractWhatsappNumber();
+
+    if (!customerId) {
+        setWhatsappLinkMessage(
+            "Select a customer before linking this WhatsApp number.",
+            "danger"
+        );
+        return;
+    }
+
+    if (!contactId) {
+        setWhatsappLinkMessage(
+            "Select an end user before linking this WhatsApp number.",
+            "danger"
+        );
+        return;
+    }
+
+    if (!whatsappNumber) {
+        setWhatsappLinkMessage(
+            "The WhatsApp sender number could not be detected from this ticket.",
+            "danger"
+        );
+        return;
+    }
+
+    const originalButtonHtml = button.innerHTML;
+
+    button.disabled = true;
+    button.innerHTML =
+        '<span class="spinner-border spinner-border-sm me-1" ' +
+        'role="status" aria-hidden="true"></span>Linking';
+
+    setWhatsappLinkMessage(
+        "Saving the WhatsApp contact link...",
+        "info"
+    );
+
+    try {
+        const response = await fetch(
+            "/api/tickets/{{ ticket.id }}/link-whatsapp-contact",
+            {
+                method: "POST",
+                headers: {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    customer_id: customerId,
+                    contact_id: contactId,
+                    whatsapp_number: whatsappNumber
+                })
+            }
+        );
+
+        let data = null;
+
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            throw new Error(
+                "The server returned an unreadable response."
+            );
+        }
+
+        if (!response.ok) {
+            throw new Error(
+                data.detail ||
+                `Linking failed with HTTP ${response.status}.`
+            );
+        }
+
+        const contactName =
+            data.contact || "the selected contact";
+
+        setWhatsappLinkMessage(
+            `WhatsApp number ${whatsappNumber} is now linked to ${contactName}.`,
+            "success"
+        );
+
+        button.innerHTML =
+            '<i class="bi bi-check-circle"></i> Linked';
+
+    } catch (error) {
+        console.error("WhatsApp contact linking failed:", error);
+
+        setWhatsappLinkMessage(
+            error.message ||
+            "The WhatsApp contact could not be linked.",
+            "danger"
+        );
+
+        button.disabled = false;
+        button.innerHTML = originalButtonHtml;
+    }
+}
+
+
+document.addEventListener("DOMContentLoaded", function () {
+    const numberElement =
+        document.getElementById("detectedWhatsappNumber");
+
+    const button =
+        document.getElementById("btnLinkWhatsappContact");
+
+    if (!numberElement) {
+        return;
+    }
+
+    const number = extractWhatsappNumber();
+
+    numberElement.textContent =
+        number || "Not detected";
+
+    if (!number && button) {
+        button.disabled = true;
+
+        setWhatsappLinkMessage(
+            "No WhatsApp sender number was detected in the ticket subject.",
+            "danger"
+        );
+    }
+});
+
+// LETSMA_WHATSAPP_LINK_JS_END
+
 </script>
 {% endblock %}
