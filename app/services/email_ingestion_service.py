@@ -499,6 +499,44 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
         effective_body = _strip_html(body_content) if body_content_type == "html" else body_content
         was_forward = False
 
+
+    # -------------------------------------------------
+    # Internal Letsma sender protection
+    # -------------------------------------------------
+
+    INTERNAL_DOMAINS = {
+        "letsma.co.uk",
+    }
+
+    domain = ""
+
+    if "@" in effective_email:
+        domain = effective_email.split("@")[-1].lower()
+
+    if domain in INTERNAL_DOMAINS:
+
+        db.add(
+            ProcessedEmail(
+                graph_message_id=graph_message_id,
+                sender_email=effective_email,
+                subject=effective_subject,
+                was_excluded=True,
+            )
+        )
+
+        db.commit()
+
+        await _mark_email_read(
+            token,
+            graph_message_id
+        )
+
+        return {
+            "action": "skipped_internal_sender",
+            "sender": effective_email,
+        }
+
+
     # --- Reply detection: is this part of an existing ticket's conversation? ---
     # Checked BEFORE customer-matching/ticket-creation - if this email is a
     # continuation of an existing ticket's thread, we add it as a comment
