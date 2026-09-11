@@ -271,7 +271,7 @@
                     Assign a customer above first to pick a specific contact.
                 {% endif %}
             </p>
-            <select class="form-select" id="ticketContactSelect" onchange="updateTicket('contact_id', this.value)" {% if not ticket.customer %}disabled{% endif %}>
+            <select class="form-select" id="ticketContactSelect" onchange="assignTicketContact(this.value)" {% if not ticket.customer %}disabled{% endif %}>
                 <option value="">Loading contacts...</option>
             </select>
         </div>
@@ -681,6 +681,29 @@ function addClassificationAsInternalNote() {
     </div>
 </div>
 
+
+<!-- LETSMA_WHATSAPP_AUTOLEARN_MODAL_START -->
+<div class="modal fade" id="whatsappLearnModal" tabindex="-1" aria-labelledby="whatsappLearnModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="whatsappLearnModalLabel"><i class="bi bi-whatsapp"></i> Remember WhatsApp Contact?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Remember WhatsApp number <strong id="whatsappLearnNumber"></strong> for <strong id="whatsappLearnContact"></strong> at <strong id="whatsappLearnCustomer"></strong>?</p>
+        <p class="small text-muted">Future messages from this number will automatically match this contact.</p>
+        <div id="whatsappLearnStatus" role="status" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" onclick="dismissWhatsappPrompt()">Not Now</button>
+        <button type="button" class="btn btn-success" id="btnConfirmWhatsappLearn" onclick="confirmWhatsappAutoLearn()"><i class="bi bi-bookmark-check"></i> Remember Contact</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- LETSMA_WHATSAPP_AUTOLEARN_MODAL_END -->
+
 <script>
 async function updateTicket(field, value) {
     const body = {}; body[field] = value;
@@ -981,6 +1004,93 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 
 // LETSMA_WHATSAPP_LINK_JS_END
+
+
+
+// LETSMA_WHATSAPP_AUTOLEARN_JS_START
+let whatsappPromptDismissed = false;
+let whatsappLinkCompleted = false;
+
+function dismissWhatsappPrompt() {
+    whatsappPromptDismissed = true;
+}
+
+function maybeShowWhatsappLearnPrompt() {
+    if (whatsappPromptDismissed || whatsappLinkCompleted) return;
+    if (!document.getElementById('whatsappLinkCard')) return;
+
+    const customer = document.getElementById('ticketCustomerSelect');
+    const contact = document.getElementById('ticketContactSelect');
+    const number = typeof extractWhatsappNumber === 'function' ? extractWhatsappNumber() : null;
+    if (!customer || !customer.value || !contact || !contact.value || !number) return;
+
+    document.getElementById('whatsappLearnNumber').textContent = number;
+    document.getElementById('whatsappLearnCustomer').textContent = customer.options[customer.selectedIndex].text;
+    document.getElementById('whatsappLearnContact').textContent = contact.options[contact.selectedIndex].text;
+    document.getElementById('whatsappLearnStatus').innerHTML = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('whatsappLearnModal')).show();
+}
+
+async function assignTicketContact(contactId) {
+    const response = await fetch('/api/tickets/{{ ticket.id }}', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contact_id: contactId || null})
+    });
+    if (!response.ok) {
+        alert('Failed to update end user: ' + await response.text());
+        return;
+    }
+    if (contactId) window.setTimeout(maybeShowWhatsappLearnPrompt, 250);
+}
+
+async function confirmWhatsappAutoLearn() {
+    const button = document.getElementById('btnConfirmWhatsappLearn');
+    const status = document.getElementById('whatsappLearnStatus');
+    const customer = document.getElementById('ticketCustomerSelect');
+    const contact = document.getElementById('ticketContactSelect');
+    const number = typeof extractWhatsappNumber === 'function' ? extractWhatsappNumber() : null;
+
+    if (!customer.value || !contact.value || !number) {
+        status.className = 'alert alert-danger py-2';
+        status.textContent = 'Customer, end user or WhatsApp number is missing.';
+        return;
+    }
+
+    button.disabled = true;
+    status.className = 'alert alert-info py-2';
+    status.textContent = 'Saving WhatsApp contact link...';
+
+    try {
+        const response = await fetch('/api/tickets/{{ ticket.id }}/link-whatsapp-contact', {
+            method: 'POST',
+            headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
+            body: JSON.stringify({customer_id: customer.value, contact_id: contact.value, whatsapp_number: number})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Unable to save WhatsApp link.');
+
+        whatsappLinkCompleted = true;
+        status.className = 'alert alert-success py-2';
+        status.textContent = 'WhatsApp contact remembered successfully.';
+
+        const manualButton = document.getElementById('btnLinkWhatsappContact');
+        if (manualButton) {
+            manualButton.disabled = true;
+            manualButton.innerHTML = '<i class="bi bi-check-circle"></i> Linked';
+        }
+
+        window.setTimeout(function () {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('whatsappLearnModal'));
+            if (modal) modal.hide();
+        }, 900);
+    } catch (error) {
+        status.className = 'alert alert-danger py-2';
+        status.textContent = error.message || 'Unable to save WhatsApp link.';
+        button.disabled = false;
+    }
+}
+// LETSMA_WHATSAPP_AUTOLEARN_JS_END
 
 </script>
 {% endblock %}
