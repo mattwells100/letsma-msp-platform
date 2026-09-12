@@ -118,6 +118,18 @@ class TeamsTicketWorkflowTests(unittest.TestCase):
         self.assertEqual(result.status, "collected")
         self.assertEqual(draft.description, "test")
 
+    def test_abandoned_confirmation_draft_can_start_new_issue(self):
+        draft = TeamsTicketDraft("conversation-1", "user-1")
+        draft.state = TicketDraftState.AWAITING_CONFIRMATION
+        draft.subject = "Old issue"
+        draft.description = "Old issue description"
+
+        draft.reset()
+        result = collect_issue(draft, "New VPN issue")
+
+        self.assertEqual(result.status, "collected")
+        self.assertEqual(draft.subject, "New VPN issue")
+
 
 if __name__ == "__main__":
     unittest.main()

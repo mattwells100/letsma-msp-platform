@@ -493,7 +493,24 @@ async def receive_message(
 
     if draft.state == TicketDraftState.AWAITING_CONFIRMATION:
         if text.casefold() not in {"confirm", "yes", "create"}:
-            return _reply("Reply 'confirm' to create this ticket, or describe a correction.")
+            # Do not leave a conversation stuck behind an abandoned draft.
+            # A new issue message is a valid request for a fresh ticket.
+            draft.reset()
+            issue_result = collect_issue(draft, text)
+            if issue_result.status != "collected":
+                return _reply(issue_result.message)
+            result = create_ticket(
+                db,
+                draft,
+                reporter_name=sender,
+                service_url=service_url,
+            )
+            remember_ticket_number(
+                db=db,
+                conversation_id=conversation_id,
+                ticket_number=result.ticket.ticket_number,
+            )
+            return _reply(result.message)
         result = create_ticket(
             db,
             draft,
