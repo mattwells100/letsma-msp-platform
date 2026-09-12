@@ -16,6 +16,8 @@ from app.services.teams_ticket_workflow_service import (
     create_ticket,
 )
 from app.services.teams_contact_workflow_service import collect_contact
+from app.services.teams_contact_resolution_service import resolve_teams_sender
+from app.services.teams_customer_resolution_service import resolve_customer
 from app.services.teams_issue_workflow_service import collect_issue
 from app.routers.ai_assist import (
     _parse_ticket_classification,
@@ -23,6 +25,7 @@ from app.routers.ai_assist import (
 )
 from app.services import azure_openai_service
 import json
+import re
 
 router = APIRouter(
     prefix="/api/teams",
@@ -76,6 +79,7 @@ async def _create_and_confirm_ticket(
     draft,
     *,
     sender: str,
+    sender_email: str | None,
     service_url: str | None,
     conversation_id: str | None,
 ) -> dict:
@@ -83,6 +87,7 @@ async def _create_and_confirm_ticket(
         db,
         draft,
         reporter_name=sender,
+        reporter_email=sender_email,
         service_url=service_url,
     )
     # Persist first so an unavailable or slow AI service cannot prevent the
@@ -126,6 +131,47 @@ async def _create_and_confirm_ticket(
     return _reply(confirmation_message)
 
 
+def _match_teams_sender(db, draft, payload: dict, text: str) -> None:
+    sender_data = payload.get("from") or {}
+    email_data = sender_data.get("emailAddress") or {}
+    sender_email = (
+        sender_data.get("email")
+        or sender_data.get("userPrincipalName")
+        or email_data.get("address")
+    )
+    aad_object_id = sender_data.get("aadObjectId")
+    match = resolve_teams_sender(
+        db,
+        sender_name=sender_data.get("name"),
+        sender_email=sender_email,
+        aad_object_id=aad_object_id,
+    )
+    if match:
+        contact, customer = match
+        draft.contact_id = contact.id
+        draft.contact_name = contact.name
+        draft.customer_id = customer.id if customer else contact.customer_id
+        draft.customer_name = customer.name if customer else None
+        return
+
+    customer_hint_match = re.search(r"\bfor\s+(.+)$", text, re.IGNORECASE)
+    if customer_hint_match:
+        resolution = resolve_customer(db, customer_hint_match.group(1).strip())
+        if resolution.matched:
+            draft.customer_id = resolution.customer_id
+            draft.customer_name = resolution.customer_name
+
+
+def _sender_email(payload: dict) -> str | None:
+    sender_data = payload.get("from") or {}
+    email_data = sender_data.get("emailAddress") or {}
+    return (
+        sender_data.get("email")
+        or sender_data.get("userPrincipalName")
+        or email_data.get("address")
+    )
+
+
 def _conversation_ticket(
     conversation_id,
     service_url,
@@ -153,6 +199,7 @@ async def receive_message(
     text = (payload.get("text") or "").strip()
 
     sender = (payload.get("from") or {}).get("name") or "Teams user"
+    sender_email = _sender_email(payload)
     conversation_id = (payload.get("conversation") or {}).get("id")
     service_url = payload.get("serviceUrl")
 
@@ -522,11 +569,13 @@ async def receive_message(
         issue_result = collect_issue(draft, text)
         if issue_result.status != "collected":
             return _reply(issue_result.message)
+        _match_teams_sender(db, draft, payload, text)
 
         return await _create_and_confirm_ticket(
             db,
             draft,
             sender=sender,
+            sender_email=sender_email,
             service_url=service_url,
             conversation_id=conversation_id,
         )
@@ -559,10 +608,12 @@ async def receive_message(
             issue_result = collect_issue(draft, text)
             if issue_result.status != "collected":
                 return _reply(issue_result.message)
+            _match_teams_sender(db, draft, payload, text)
             return await _create_and_confirm_ticket(
                 db,
                 draft,
                 sender=sender,
+                sender_email=sender_email,
                 service_url=service_url,
                 conversation_id=conversation_id,
             )
@@ -570,6 +621,7 @@ async def receive_message(
             db,
             draft,
             sender=sender,
+            sender_email=sender_email,
             service_url=service_url,
             conversation_id=conversation_id,
         )

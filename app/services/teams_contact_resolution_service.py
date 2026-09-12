@@ -246,3 +246,45 @@ def resolve_contact(
         status=ContactResolutionStatus.NOT_FOUND,
         query=original,
     )
+
+
+def resolve_teams_sender(
+    db: Session,
+    *,
+    sender_name: str | None,
+    sender_email: str | None = None,
+    aad_object_id: str | None = None,
+):
+    """Match a Teams sender to one contact across all customers."""
+    name_hint = normalise_contact_hint(sender_name)
+    email_hint = normalise_contact_hint(sender_email)
+    aad_hint = (aad_object_id or "").strip().casefold()
+    if not name_hint and not email_hint and not aad_hint:
+        return None
+
+    matches = []
+    for contact in db.query(models.Contact).all():
+        graph_user_id = str(getattr(contact, "graph_user_id", "") or "").casefold()
+        contact_email = normalise_contact_hint(getattr(contact, "email", ""))
+        contact_name = normalise_contact_hint(getattr(contact, "name", ""))
+        if aad_hint and graph_user_id == aad_hint:
+            matches.append((100, contact))
+        elif email_hint and contact_email == email_hint:
+            matches.append((90, contact))
+        elif name_hint and contact_name == name_hint:
+            matches.append((70, contact))
+
+    if not matches:
+        return None
+    matches.sort(key=lambda item: -item[0])
+    best_score = matches[0][0]
+    best = [contact for score, contact in matches if score == best_score]
+    if len(best) != 1:
+        return None
+    contact = best[0]
+    customer = (
+        db.query(models.Customer)
+        .filter(models.Customer.id == contact.customer_id)
+        .first()
+    )
+    return contact, customer

@@ -14,6 +14,7 @@ from app.services.teams_ticket_workflow_service import (
     create_ticket,
 )
 from app.services.teams_issue_workflow_service import collect_issue
+from app.routers.teams_bot import _match_teams_sender
 
 
 class FakeSession:
@@ -70,6 +71,7 @@ class TeamsTicketWorkflowTests(unittest.TestCase):
                 session,
                 draft,
                 reporter_name="Teams user",
+                reporter_email="user@example.com",
                 service_url="https://teams.example",
             )
 
@@ -81,6 +83,7 @@ class TeamsTicketWorkflowTests(unittest.TestCase):
         self.assertEqual(ticket.source.value, "Teams")
         self.assertEqual(ticket.priority, TicketPriority.HIGH)
         self.assertEqual(ticket.external_ref, "https://teams.example")
+        self.assertEqual(ticket.reporter_email, "user@example.com")
         self.assertEqual(draft.state, TicketDraftState.COMPLETED)
 
     def test_create_ticket_rejects_incomplete_draft(self):
@@ -129,6 +132,26 @@ class TeamsTicketWorkflowTests(unittest.TestCase):
 
         self.assertEqual(result.status, "collected")
         self.assertEqual(draft.subject, "New VPN issue")
+
+    def test_teams_sender_match_populates_contact_and_customer(self):
+        draft = TeamsTicketDraft("conversation-1", "user-1")
+        contact = SimpleNamespace(id="contact-1", name="Matt Wells", customer_id="customer-1")
+        customer = SimpleNamespace(id="customer-1", name="Acme Ltd")
+
+        with patch(
+            "app.routers.teams_bot.resolve_teams_sender",
+            return_value=(contact, customer),
+        ):
+            _match_teams_sender(
+                FakeSession(),
+                draft,
+                {"from": {"name": "Matt Wells", "email": "matt@example.com"}},
+                "VPN is unavailable",
+            )
+
+        self.assertEqual(draft.contact_id, "contact-1")
+        self.assertEqual(draft.customer_id, "customer-1")
+        self.assertEqual(draft.customer_name, "Acme Ltd")
 
 
 if __name__ == "__main__":

@@ -206,6 +206,7 @@ def create_ticket(
     draft: TeamsTicketDraft,
     *,
     reporter_name: str,
+    reporter_email: str | None = None,
     service_url: str | None = None,
 ) -> TicketCreationResult:
     """Create the persisted ticket represented by a completed Teams draft."""
@@ -233,6 +234,7 @@ def create_ticket(
         estimated_minutes=draft.estimated_minutes,
         source=TicketSource.TEAMS,
         reporter_name=reporter_name,
+        reporter_email=reporter_email,
         conversation_id=draft.conversation_id,
         external_ref=service_url,
     )
