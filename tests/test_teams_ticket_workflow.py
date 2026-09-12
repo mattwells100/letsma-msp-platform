@@ -13,6 +13,7 @@ from app.services.teams_ticket_workflow_service import (
     collect_customer,
     create_ticket,
 )
+from app.services.teams_issue_workflow_service import collect_issue
 
 
 class FakeSession:
@@ -108,6 +109,14 @@ class TeamsTicketWorkflowTests(unittest.TestCase):
 
         self.assertEqual(result.ticket.ticket_number, 1201)
         self.assertIsNone(result.ticket.customer_id)
+
+    def test_collect_issue_accepts_short_nonempty_message(self):
+        draft = TeamsTicketDraft("conversation-1", "user-1")
+
+        result = collect_issue(draft, "test")
+
+        self.assertEqual(result.status, "collected")
+        self.assertEqual(draft.description, "test")
 
 
 if __name__ == "__main__":

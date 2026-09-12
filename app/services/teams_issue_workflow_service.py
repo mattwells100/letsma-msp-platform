@@ -44,7 +44,7 @@ def build_ticket_subject(description: str, *, max_length: int = 120) -> str:
 
 def collect_issue(draft: TeamsTicketDraft, issue_text: str | None) -> IssueCollectionResult:
     description = (issue_text or "").strip()
-    if len(description) < 5:
+    if not description:
         draft.state = TicketDraftState.COLLECTING_ISSUE
         teams_ticket_state_service.save(draft)
         return IssueCollectionResult(
