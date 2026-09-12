@@ -265,6 +265,56 @@ async def extract_purchase_from_email(email_subject: str, email_body_text: str, 
         raise RuntimeError(f"Could not parse Azure OpenAI output as JSON: {exc}. Raw content: {content[:500]}") from exc
 
 
+async def classify_helpdesk_email(email_subject: str, email_body_text: str) -> dict:
+    """Classify whether an email should enter the helpdesk ticket queue."""
+    if not settings.AZURE_OPENAI_ENDPOINT or not settings.AZURE_OPENAI_API_KEY or not settings.AZURE_OPENAI_DEPLOYMENT_NAME:
+        raise RuntimeError("Azure OpenAI is not configured")
+
+    url = (
+        f"{settings.AZURE_OPENAI_ENDPOINT.rstrip('/')}/openai/deployments/"
+        f"{settings.AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions"
+        f"?api-version={AZURE_OPENAI_API_VERSION}"
+    )
+    prompt = (
+        "Classify this email into exactly one of HELPDESK, ORDERS, INVOICE, "
+        "RENEWAL, MARKETING, NEWSLETTER, ALERT, or OTHER. Use HELPDESK only "
+        "for a genuine IT support incident, access problem, service request, "
+        "or question requiring helpdesk action. Return JSON only with keys "
+        "classification and confidence, where confidence is a number from 0 to 1.\n\n"
+        f"Subject:\n{email_subject}\n\nBody:\n{(email_body_text or '')[:4000]}"
+    )
+    payload = {
+        "messages": [
+            {"role": "system", "content": "You are a strict email triage classifier. Return JSON only."},
+            {"role": "user", "content": prompt},
+        ],
+        "max_completion_tokens": 1000,
+    }
+
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        resp = await client.post(
+            url,
+            headers={"api-key": settings.AZURE_OPENAI_API_KEY, "Content-Type": "application/json"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    content = data["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.strip("`").strip()
+        if content.lower().startswith("json"):
+            content = content[4:].strip()
+    result = json.loads(content)
+    classification = str(result.get("classification", "OTHER")).upper()
+    if classification not in {"HELPDESK", "ORDERS", "INVOICE", "RENEWAL", "MARKETING", "NEWSLETTER", "ALERT", "OTHER"}:
+        classification = "OTHER"
+    return {
+        "classification": classification,
+        "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.0)))),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Ticket classification
 # ---------------------------------------------------------------------------

@@ -75,6 +75,7 @@ from app.models import (
     ExcludedEmailSender, AutoReplyRule, ProcessedEmail,
 )
 from app.services.ticket_numbering import next_ticket_number
+from app.services import azure_openai_service
 
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -308,55 +309,12 @@ async def classify_helpdesk_email(subject: str, body: str) -> dict:
     """
 
     try:
-        client = get_openai_client()
-
-        prompt = f"""
-You are a managed service provider helpdesk triage assistant.
-
-Classify this email into ONE category:
-
-HELPDESK
-ORDERS
-INVOICE
-RENEWAL
-MARKETING
-NEWSLETTER
-ALERT
-OTHER
-
-Return JSON only.
-
-Subject:
-{subject}
-
-Body:
-{body[:4000]}
-"""
-
-        resp = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "Return JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0,
-        )
-
-        import json
-
-        result = json.loads(
-            resp.choices[0].message.content
-        )
-
-        return result
-
+        return await azure_openai_service.classify_helpdesk_email(subject, body)
     except Exception as exc:
         print(f"EMAIL_TRIAGE_FAILED: {exc}")
-
-        return {
-            "classification": "HELPDESK",
-            "confidence": 0.50,
-        }
+        # Never create a ticket when triage is unavailable. A false negative
+        # can be reviewed from the mailbox; a fail-open classifier floods the queue.
+        return {"classification": "OTHER", "confidence": 0.0}
 
 
 # ---------------------------------------------------------------------------
