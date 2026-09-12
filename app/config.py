@@ -27,6 +27,8 @@ _SECRET_NAMES = [
     "ORDERS-GRAPH-TENANT-ID", "ORDERS-GRAPH-CLIENT-ID", "ORDERS-GRAPH-CLIENT-SECRET",
     "AZURE-OPENAI-ENDPOINT", "AZURE-OPENAI-API-KEY", "AZURE-OPENAI-DEPLOYMENT-NAME",
     "AUTH-TENANT-ID", "AUTH-CLIENT-ID", "AUTH-CLIENT-SECRET",
+    "VUZION-CLOUDBLUE-BASE-URL", "VUZION-CLOUDBLUE-SUBSCRIPTION-KEY",
+    "VUZION-CLOUDBLUE-USERNAME", "VUZION-CLOUDBLUE-PASSWORD",
 ]
 
 if KEY_VAULT_URL:
@@ -77,6 +79,17 @@ class Settings:
     TEAMS_BOT_APP_ID: str = os.getenv("TEAMS_BOT_APP_ID", "")
     TEAMS_BOT_APP_SECRET: str = os.getenv("TEAMS_BOT_APP_SECRET", "")
     TEAMS_BOT_TENANT_ID: str = os.getenv("TEAMS_BOT_TENANT_ID", "")
+
+    # Vuzion/Infinigate CloudBlue Simple API. Provisioning remains disabled
+    # until credentials and customer/product mappings are configured.
+    VUZION_CLOUDBLUE_BASE_URL: str = os.getenv(
+        "VUZION_CLOUDBLUE_BASE_URL",
+        "https://api.vuzion.cloud/marketplace",
+    )
+    VUZION_CLOUDBLUE_SUBSCRIPTION_KEY: str = os.getenv("VUZION_CLOUDBLUE_SUBSCRIPTION_KEY", "")
+    VUZION_CLOUDBLUE_USERNAME: str = os.getenv("VUZION_CLOUDBLUE_USERNAME", "")
+    VUZION_CLOUDBLUE_PASSWORD: str = os.getenv("VUZION_CLOUDBLUE_PASSWORD", "")
+    VUZION_CLOUDBLUE_ENABLED: bool = os.getenv("VUZION_CLOUDBLUE_ENABLED", "false").lower() == "true"
 
     # Agent
     AGENT_API_KEY: str = os.getenv("AGENT_API_KEY", "letsma-agent-shared-key")
