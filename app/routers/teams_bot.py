@@ -2,14 +2,21 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Ticket, TicketComment, TicketSource
-from app.services.ticket_numbering import next_ticket_number
+from app.models import Ticket, TicketComment
 from app.services.teams_reply_service import send_teams_reply
 from app.services.teams_intent_service import detect_intent, TeamsIntent
 from app.services.teams_conversation_memory import (
     get_remembered_ticket_number,
     remember_ticket_number,
 )
+from app.services.teams_ticket_state import TicketDraftState
+from app.services.teams_ticket_state_service import teams_ticket_state_service
+from app.services.teams_ticket_workflow_service import (
+    collect_customer,
+    create_ticket,
+)
+from app.services.teams_contact_workflow_service import collect_contact
+from app.services.teams_issue_workflow_service import collect_issue
 from app.routers.ai_assist import (
     _parse_ticket_classification,
     AI_TICKET_CATEGORIES,
@@ -412,134 +419,74 @@ async def receive_message(
     if not text:
         return _reply("Please enter a ticket description.")
 
-    existing = None
-    if conversation_id:
-        existing = (
-            db.query(Ticket)
-            .filter(Ticket.conversation_id == conversation_id)
-            .filter(Ticket.deleted_at.is_(None))
-            .order_by(Ticket.created_at.desc())
-            .first()
+    draft = teams_ticket_state_service.get(conversation_id) if conversation_id else None
+    if draft is None:
+        draft = teams_ticket_state_service.create(
+            conversation_id=conversation_id or service_url or sender,
+            user_id=sender,
         )
 
-        if existing:
-            status_value = str(existing.status).upper()
+    if draft.state in (TicketDraftState.IDLE, TicketDraftState.COLLECTING_CUSTOMER):
+        result = collect_customer(db, draft, text)
+        return _reply(result.message)
 
-            if any(
-                s in status_value
-                for s in [
-                    "CLOSED",
-                    "RESOLVED",
-                    "COMPLETE",
-                    "COMPLETED",
-                ]
-            ):
-                print(
-                    f"[TEAMS] Existing ticket "
-                    f"{existing.ticket_number} "
-                    f"is closed, creating new ticket"
+    if draft.state == TicketDraftState.COLLECTING_CONTACT:
+        result = collect_contact(db, draft, text)
+        return _reply(result.message)
+
+    if draft.state == TicketDraftState.COLLECTING_ISSUE:
+        result = collect_issue(draft, text)
+        return _reply(result.message)
+
+    if draft.state == TicketDraftState.CLASSIFYING:
+        try:
+            prompt = (
+                "Return exactly one JSON object with no Markdown. "
+                "The keys must be category, subcategory, priority, "
+                "estimated_minutes, confidence and reason.\n\n"
+                "Allowed categories and subcategories:\n"
+                f"{json.dumps(AI_TICKET_CATEGORIES)}\n\n"
+                "Priority must be Low, Normal, High or Critical. "
+                "Confidence must be Low, Medium or High. "
+                "estimated_minutes must be between 5 and 480.\n\n"
+                f"Ticket description:\n{draft.description}"
+            )
+            suggestion = _parse_ticket_classification(
+                await azure_openai_service.classify_ticket(
+                    prompt,
+                    allowed_categories=AI_TICKET_CATEGORIES,
                 )
-                existing = None
-
-    if existing:
-        comment = TicketComment(
-            ticket_id=existing.id,
-            author=sender,
-            message=text,
-            is_internal_note=False,
-        )
-        db.add(comment)
-        db.commit()
-
+            )
+            draft.category = suggestion.get("category")
+            draft.subcategory = suggestion.get("subcategory")
+            draft.priority = suggestion.get("priority") or "Normal"
+            draft.estimated_minutes = suggestion.get("estimated_minutes") or 30
+            draft.classification_confidence = suggestion.get("confidence")
+        except Exception as exc:
+            print(f"TEAMS_CLASSIFICATION_FAILED error={exc}")
+            draft.category = None
+            draft.subcategory = None
+            draft.priority = "Normal"
+        draft.state = TicketDraftState.AWAITING_CONFIRMATION
+        teams_ticket_state_service.save(draft)
         return _reply(
-            f"Added to ticket #{existing.ticket_number}.\n\n"
-            f"A technician will follow up."
+            f"I have the issue as '{draft.subject}'. Reply 'confirm' to create the ticket."
         )
 
-    ticket = Ticket(
-        ticket_number=next_ticket_number(db),
-        subject=text[:100],
-        description=text,
-        source=TicketSource.TEAMS,
-        reporter_name=sender,
-        conversation_id=conversation_id,
-        external_ref=service_url,
-    )
-
-    db.add(ticket)
-    db.commit()
-    db.refresh(ticket)
-
-    # MEMORY_NEW_TICKET
-    remember_ticket_number(
-        db=db,
-        conversation_id=conversation_id,
-        ticket_number=ticket.ticket_number,
-    )
-
-    try:
-        await send_teams_reply(
+    if draft.state == TicketDraftState.AWAITING_CONFIRMATION:
+        if text.casefold() not in {"confirm", "yes", "create"}:
+            return _reply("Reply 'confirm' to create this ticket, or describe a correction.")
+        result = create_ticket(
+            db,
+            draft,
+            reporter_name=sender,
+            service_url=service_url,
+        )
+        remember_ticket_number(
             db=db,
-            ticket=ticket,
-            message=(
-                f"✅ Ticket #{ticket.ticket_number} Created\n\n"
-                f"Issue:\n"
-                f"{ticket.subject}\n\n"
-                f"Status: New\n\n"
-                f"You can ask:\n"
-                f"• Show my tickets\n"
-                f"• Status of {ticket.ticket_number}"
-            ),
+            conversation_id=conversation_id,
+            ticket_number=result.ticket.ticket_number,
         )
-    except Exception as ex:
-        print(
-            f"[TEAMS] Ticket created reply failed: {ex}"
-        )
+        return _reply(result.message)
 
-    try:
-        prompt = (
-            "Return exactly one JSON object with no Markdown. "
-            "The keys must be category, subcategory, priority, "
-            "estimated_minutes, confidence and reason.\n\n"
-            "Allowed categories and subcategories:\n"
-            f"{json.dumps(AI_TICKET_CATEGORIES)}\n\n"
-            "Priority must be Low, Normal, High or Critical. "
-            "Confidence must be Low, Medium or High. "
-            "estimated_minutes must be between 5 and 480. "
-            "Use only the supplied ticket evidence and do not invent facts."
-            "\n\n"
-            f"Ticket description:\n{text}"
-        )
-
-        raw_result = await azure_openai_service.classify_ticket(
-            prompt,
-            allowed_categories=AI_TICKET_CATEGORIES,
-        )
-
-        suggestion = _parse_ticket_classification(raw_result)
-
-        ticket.category = suggestion.get("category")
-        ticket.subcategory = suggestion.get("subcategory")
-        ticket.estimated_minutes = suggestion.get("estimated_minutes")
-
-        db.add(ticket)
-        db.commit()
-        db.refresh(ticket)
-
-    except Exception as exc:
-        print(
-            "TEAMS_CLASSIFICATION_FAILED "
-            f"ticket={ticket.ticket_number} error={exc}"
-        )
-
-    lines = [
-        f"\u2705 Ticket #{ticket.ticket_number} created",
-        "",
-        f"Category: {ticket.category or 'Pending'}",
-        f"Subcategory: {ticket.subcategory or 'Pending'}",
-        f"Estimated: {ticket.estimated_minutes or '-'} mins",
-        "",
-        "A technician will be in touch.",
-    ]
-
-    return _reply("\n".join(lines))
+    return _reply("This ticket draft is already complete. Start with a new issue to create another ticket.")
