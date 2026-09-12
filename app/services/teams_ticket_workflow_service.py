@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from app.models import Ticket, TicketPriority, TicketSource
+from app.services.ticket_numbering import next_ticket_number
 from app.services.teams_ticket_state import (
     TeamsTicketDraft,
     TicketDraftState,
@@ -190,4 +192,64 @@ def collect_customer(
             item.as_dict()
             for item in resolution.candidates
         ],
+    )
+
+
+@dataclass(frozen=True)
+class TicketCreationResult:
+    ticket: Ticket
+    message: str
+
+
+def create_ticket(
+    db: Session,
+    draft: TeamsTicketDraft,
+    *,
+    reporter_name: str,
+    service_url: str | None = None,
+) -> TicketCreationResult:
+    """Create the persisted ticket represented by a completed Teams draft."""
+    if not draft.can_confirm():
+        raise ValueError("Teams ticket draft is missing required fields")
+
+    priority = next(
+        (
+            item
+            for item in TicketPriority
+            if item.value.casefold() == draft.priority.casefold()
+        ),
+        TicketPriority.NORMAL,
+    )
+
+    ticket = Ticket(
+        ticket_number=next_ticket_number(db),
+        customer_id=draft.customer_id,
+        contact_id=draft.contact_id,
+        subject=draft.subject,
+        description=draft.description,
+        category=draft.category,
+        subcategory=draft.subcategory,
+        priority=priority,
+        estimated_minutes=draft.estimated_minutes,
+        source=TicketSource.TEAMS,
+        reporter_name=reporter_name,
+        conversation_id=draft.conversation_id,
+        external_ref=service_url,
+    )
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
+    draft.created_ticket_id = ticket.id
+    draft.created_ticket_number = str(ticket.ticket_number)
+    draft.state = TicketDraftState.COMPLETED
+    teams_ticket_state_service.save(draft)
+
+    return TicketCreationResult(
+        ticket=ticket,
+        message=(
+            f"Ticket #{ticket.ticket_number} created.\n\n"
+            f"Issue: {ticket.subject}\n"
+            f"Status: {ticket.status.value}"
+        ),
     )
