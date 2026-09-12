@@ -102,6 +102,14 @@ async def _create_and_confirm_ticket(
     db.add(result.ticket)
     db.commit()
     db.refresh(result.ticket)
+    confirmation_message = (
+        f"Ticket #{result.ticket.ticket_number} created.\n\n"
+        f"Issue: {result.ticket.subject}\n"
+        f"Status: {result.ticket.status.value}\n"
+        f"Category: {result.ticket.category or 'Pending'}\n"
+        f"Subcategory: {result.ticket.subcategory or 'Pending'}\n"
+        f"Priority: {result.ticket.priority.value if hasattr(result.ticket.priority, 'value') else result.ticket.priority}"
+    )
     remember_ticket_number(
         db=db,
         conversation_id=conversation_id,
@@ -111,11 +119,11 @@ async def _create_and_confirm_ticket(
         await send_teams_reply(
             db=db,
             ticket=result.ticket,
-            message=result.message,
+            message=confirmation_message,
         )
     except Exception as exc:
         print(f"TEAMS_CONFIRMATION_FAILED ticket={result.ticket.ticket_number} error={exc}")
-    return _reply(result.message)
+    return _reply(confirmation_message)
 
 
 def _conversation_ticket(
