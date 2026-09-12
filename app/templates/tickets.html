@@ -65,7 +65,7 @@
 
 </div>
 
-<div class="card stat-card p-3">
+<div class="card stat-card p-3" id="ticketListCard">
     <table class="table align-middle">
         <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Category</th><th>Subcategory</th><th>Estimate</th><th>Status</th><th>Created</th><th data-lastupdate-col>Last Update</th><th>Updated</th><th class="text-end">Delete</th></tr></thead>
         <tbody>
@@ -239,6 +239,37 @@ async function submitNewTicket() {
         alert('Failed to create ticket: ' + await resp.text());
     }
 }
+</script>
+
+<script>
+const ticketRefreshMs = 15000;
+
+async function refreshTicketListIfChanged() {
+    if (document.hidden || document.querySelector('.modal.show')) return;
+
+    const active = document.activeElement;
+    if (active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return;
+
+    try {
+        const response = await fetch(window.location.href, {
+            cache: 'no-store',
+            headers: {'X-Requested-With': 'ticket-list-refresh'},
+        });
+        if (!response.ok) return;
+
+        const html = await response.text();
+        const parsed = new DOMParser().parseFromString(html, 'text/html');
+        const current = document.getElementById('ticketListCard');
+        const incoming = parsed.getElementById('ticketListCard');
+        if (current && incoming && current.innerHTML !== incoming.innerHTML) {
+            window.location.reload();
+        }
+    } catch (error) {
+        // A temporary polling failure should not affect normal page use.
+    }
+}
+
+window.setInterval(refreshTicketListIfChanged, ticketRefreshMs);
 </script>
 
 <script>
