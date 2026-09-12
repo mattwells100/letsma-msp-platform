@@ -22,6 +22,10 @@ class TicketWhatsAppLinkRequest(BaseModel):
     whatsapp_number: str
 
 
+class BulkTicketDeleteRequest(BaseModel):
+    ticket_ids: List[str]
+
+
 # SLA targets (hours) by priority - used to auto-compute sla_due_at
 SLA_HOURS = {"Critical": 2, "High": 4, "Normal": 8, "Low": 24}
 
@@ -320,6 +324,32 @@ def link_whatsapp_contact_to_ticket(
         "contact": contact.name,
         "whatsapp_number": number,
     }
+
+
+@router.post("/bulk-delete")
+def bulk_delete_tickets(
+    payload: BulkTicketDeleteRequest,
+    db: Session = Depends(get_db),
+):
+    ticket_ids = list(dict.fromkeys(payload.ticket_ids))
+    if not ticket_ids:
+        raise HTTPException(400, "Select at least one ticket")
+    if len(ticket_ids) > 500:
+        raise HTTPException(400, "You can delete up to 500 tickets at a time")
+
+    tickets = (
+        db.query(models.Ticket)
+        .filter(
+            models.Ticket.id.in_(ticket_ids),
+            models.Ticket.deleted_at.is_(None),
+        )
+        .all()
+    )
+    deleted_at = datetime.utcnow()
+    for ticket in tickets:
+        ticket.deleted_at = deleted_at
+    db.commit()
+    return {"status": "ok", "deleted_count": len(tickets)}
 
 
 @router.delete("/{ticket_id}")

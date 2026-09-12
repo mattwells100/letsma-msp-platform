@@ -17,6 +17,9 @@
         <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newTicketModal">
             <i class="bi bi-plus-lg"></i> New Ticket
         </button>
+        <button id="bulkDeleteButton" class="btn btn-sm btn-outline-danger" onclick="bulkDeleteTickets()" disabled>
+            <i class="bi bi-trash"></i> Delete Selected
+        </button>
     </div>
 </div>
 
@@ -67,10 +70,11 @@
 
 <div class="card stat-card p-3" id="ticketListCard">
     <table class="table align-middle">
-        <thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Category</th><th>Subcategory</th><th>Estimate</th><th>Status</th><th>Created</th><th data-lastupdate-col>Last Update</th><th>Updated</th><th class="text-end">Delete</th></tr></thead>
+        <thead><tr><th><input type="checkbox" class="form-check-input" id="selectAllTickets" onchange="toggleAllTickets(this)" aria-label="Select all tickets"></th><th>#</th><th>Subject</th><th>Customer</th><th>Contact</th><th>Source</th><th>Priority</th><th>Category</th><th>Subcategory</th><th>Estimate</th><th>Status</th><th>Created</th><th data-lastupdate-col>Last Update</th><th>Updated</th><th class="text-end">Delete</th></tr></thead>
         <tbody>
         {% for t in tickets %}
             <tr onclick="window.location='/tickets/{{ t.id }}'" style="cursor:pointer">
+                <td onclick="event.stopPropagation()"><input type="checkbox" class="form-check-input ticket-select" value="{{ t.id }}" onchange="updateBulkDeleteButton()" aria-label="Select ticket {{ t.ticket_number }}"></td>
                 <td>{{ t.ticket_number }}</td>
                 <td>{{ t.subject }}</td>
                 <td>
@@ -119,7 +123,7 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="14" class="text-muted">{% if unassigned_only %}No unassigned tickets.{% else %}No tickets yet.{% endif %}</td></tr>
+            <tr><td colspan="15" class="text-muted">{% if unassigned_only %}No unassigned tickets.{% else %}No tickets yet.{% endif %}</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -161,6 +165,49 @@
 </div>
 
 <script>
+function selectedTicketIds() {
+    return Array.from(document.querySelectorAll('.ticket-select:checked'))
+        .map((checkbox) => checkbox.value);
+}
+
+function updateBulkDeleteButton() {
+    const selected = selectedTicketIds();
+    const button = document.getElementById('bulkDeleteButton');
+    button.disabled = selected.length === 0;
+    button.innerHTML = selected.length
+        ? `<i class="bi bi-trash"></i> Delete Selected (${selected.length})`
+        : '<i class="bi bi-trash"></i> Delete Selected';
+}
+
+function toggleAllTickets(selectAll) {
+    document.querySelectorAll('.ticket-select').forEach((checkbox) => {
+        checkbox.checked = selectAll.checked;
+    });
+    updateBulkDeleteButton();
+}
+
+async function bulkDeleteTickets() {
+    const ticketIds = selectedTicketIds();
+    if (!ticketIds.length) return;
+    if (!confirm(`Delete ${ticketIds.length} selected ticket(s)? They will be hidden but preserved for audit history.`)) return;
+
+    const button = document.getElementById('bulkDeleteButton');
+    button.disabled = true;
+    try {
+        const response = await fetch('/api/tickets/bulk-delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ticket_ids: ticketIds}),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        window.location.reload();
+    } catch (error) {
+        document.getElementById('resultMsg').innerHTML =
+            '<div class="alert alert-danger py-2 mb-0">Bulk delete failed: ' + error + '</div>';
+        updateBulkDeleteButton();
+    }
+}
+
 async function deleteTicket(ticketId, ticketNumber) {
     if (!confirm('Delete ticket #' + ticketNumber + '? It will be hidden from all lists but preserved for audit history.')) return;
     try {
