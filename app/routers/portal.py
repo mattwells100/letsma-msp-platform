@@ -22,6 +22,7 @@ require_login_page to customer_portal().
 """
 from datetime import datetime
 from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
@@ -212,6 +213,31 @@ def ticket_detail_page(ticket_id: str, request: Request, db: Session = Depends(g
         "request": request, "ticket": ticket, "time_entries": time_entries, "active_page": "tickets",
         "customers": customers,
     })
+
+
+@router.get("/tickets/{ticket_id}/attachments/{attachment_id}")
+def ticket_attachment(
+    ticket_id: str,
+    attachment_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_login_page),
+):
+    attachment = (
+        db.query(models.TicketAttachment)
+        .filter(
+            models.TicketAttachment.id == attachment_id,
+            models.TicketAttachment.ticket_id == ticket_id,
+        )
+        .first()
+    )
+    if not attachment:
+        raise HTTPException(404, "Attachment not found")
+    safe_filename = attachment.filename.replace('"', '')
+    return Response(
+        content=attachment.data,
+        media_type=attachment.content_type,
+        headers={"Content-Disposition": f'inline; filename="{safe_filename}"'},
+    )
 
 
 @router.get("/billing")

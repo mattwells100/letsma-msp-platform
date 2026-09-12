@@ -65,6 +65,7 @@ restricts this app to ONLY the helpdesk mailbox).
 import re
 import html
 from datetime import datetime
+import base64
 
 import httpx
 from sqlalchemy.orm import Session
@@ -72,11 +73,12 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import (
     Ticket, TicketComment, TicketSource, TicketPriority, Customer, Contact,
-    ExcludedEmailSender, AutoReplyRule, ProcessedEmail,
+    ExcludedEmailSender, AutoReplyRule, ProcessedEmail, TicketAttachment,
 )
 from app.services.ticket_numbering import next_ticket_number
 from app.services import azure_openai_service
 
+MAX_TICKET_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -396,11 +398,59 @@ async def _mark_email_read(token: str, message_id: str):
         )
         resp.raise_for_status()
 
+async def _store_email_attachments(
+    db: Session,
+    token: str,
+    mailbox: str,
+    message_id: str,
+    ticket_id: str,
+) -> int:
+    """Copy file attachments from Graph into the ticket record."""
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.get(
+            f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}/attachments",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"$select": "id,name,contentType,size,contentBytes,isInline"},
+        )
+        response.raise_for_status()
+        attachments = response.json().get("value", [])
+
+    stored = 0
+    for item in attachments:
+        if item.get("isInline") or item.get("@odata.type") != "#microsoft.graph.fileAttachment":
+            continue
+        content = item.get("contentBytes")
+        if not content:
+            continue
+        try:
+            data = base64.b64decode(content)
+        except (ValueError, TypeError):
+            continue
+        if not data or len(data) > MAX_TICKET_ATTACHMENT_BYTES:
+            continue
+        db.add(TicketAttachment(
+            ticket_id=ticket_id,
+            filename=item.get("name") or "attachment",
+            content_type=item.get("contentType") or "application/octet-stream",
+            size_bytes=len(data),
+            data=data,
+            source="email",
+        ))
+        stored += 1
+    if stored:
+        db.commit()
+    return stored
+
 
 # ---------------------------------------------------------------------------
 # Core per-email processing
 # ---------------------------------------------------------------------------
-async def process_single_email(db: Session, token: str, message: dict) -> dict:
+async def process_single_email(
+    db: Session,
+    token: str,
+    message: dict,
+    mailbox: str | None = None,
+) -> dict:
     """
     Processes one Graph message dict end-to-end: dedup check, exclusion
     check, conversation-thread reply detection, forward parsing, ticket
@@ -604,6 +654,15 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
     db.add(processed)
     db.commit()
 
+    attachment_count = 0
+    if mailbox:
+        try:
+            attachment_count = await _store_email_attachments(
+                db, token, mailbox, graph_message_id, ticket.id
+            )
+        except Exception as exc:
+            print(f"EMAIL_ATTACHMENTS_FAILED ticket={ticket.ticket_number} error={exc}")
+
     # -------------------------------------------------
     # Automatic AI categorisation
     # -------------------------------------------------
@@ -658,6 +717,7 @@ async def process_single_email(db: Session, token: str, message: dict) -> dict:
         "auto_reply_would_send": auto_reply_would_send,
         "auto_reply_actually_sent": auto_reply_actually_sent,
         "was_forward": was_forward,
+        "attachment_count": attachment_count,
     }
 
 
@@ -705,7 +765,8 @@ async def poll_and_process_helpdesk_inbox(db: Session) -> dict:
                 result = await process_single_email(
                     db,
                     token,
-                    message
+                    message,
+                    mailbox=mailbox,
                 )
 
                 result["mailbox"] = mailbox

@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Enum, Date, Numeric
+    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Enum, Date, Numeric, LargeBinary
 )
 from sqlalchemy.orm import relationship
 
@@ -241,6 +241,7 @@ class Ticket(Base):
     contact = relationship("Contact")
     technician = relationship("Technician")
     comments = relationship("TicketComment", back_populates="ticket", cascade="all, delete-orphan")
+    attachments = relationship("TicketAttachment", back_populates="ticket", cascade="all, delete-orphan")
 
 
 class TicketComment(Base):
@@ -254,6 +255,21 @@ class TicketComment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     ticket = relationship("Ticket", back_populates="comments")
+
+
+class TicketAttachment(Base):
+    __tablename__ = "ticket_attachments"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    ticket_id = Column(String, ForeignKey("tickets.id"), nullable=False, index=True)
+    filename = Column(String, nullable=False)
+    content_type = Column(String, nullable=False, default="application/octet-stream")
+    size_bytes = Column(Integer, nullable=False, default=0)
+    data = Column(LargeBinary, nullable=False)
+    source = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("Ticket", back_populates="attachments")
 
 
 # ---------------------------------------------------------------------------
