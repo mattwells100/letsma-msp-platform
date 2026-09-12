@@ -58,11 +58,17 @@ async def _classify_draft(draft) -> None:
         draft.priority = suggestion.get("priority") or "Normal"
         draft.estimated_minutes = suggestion.get("estimated_minutes") or 30
         draft.classification_confidence = suggestion.get("confidence")
+        print(
+            f"TEAMS_CLASSIFICATION_OK category={draft.category} "
+            f"subcategory={draft.subcategory} priority={draft.priority}"
+        )
     except Exception as exc:
         print(f"TEAMS_CLASSIFICATION_FAILED error={exc}")
-        draft.category = None
-        draft.subcategory = None
+        draft.category = "General Support"
+        draft.subcategory = "Incident"
         draft.priority = "Normal"
+        draft.estimated_minutes = 30
+        draft.classification_confidence = "Low"
 
 
 async def _create_and_confirm_ticket(
