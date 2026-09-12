@@ -84,7 +84,6 @@ class TeamsTicketDraft:
 
         return all(
             [
-                self.customer_id,
                 self.subject,
                 self.description,
             ]

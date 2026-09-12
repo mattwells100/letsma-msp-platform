@@ -426,7 +426,25 @@ async def receive_message(
             user_id=sender,
         )
 
-    if draft.state in (TicketDraftState.IDLE, TicketDraftState.COLLECTING_CUSTOMER):
+    if draft.state == TicketDraftState.IDLE:
+        issue_result = collect_issue(draft, text)
+        if issue_result.status != "collected":
+            return _reply(issue_result.message)
+
+        result = create_ticket(
+            db,
+            draft,
+            reporter_name=sender,
+            service_url=service_url,
+        )
+        remember_ticket_number(
+            db=db,
+            conversation_id=conversation_id,
+            ticket_number=result.ticket.ticket_number,
+        )
+        return _reply(result.message)
+
+    if draft.state == TicketDraftState.COLLECTING_CUSTOMER:
         result = collect_customer(db, draft, text)
         return _reply(result.message)
 
@@ -488,5 +506,19 @@ async def receive_message(
             ticket_number=result.ticket.ticket_number,
         )
         return _reply(result.message)
+
+    if draft.state == TicketDraftState.COMPLETED and draft.created_ticket_id:
+        ticket = db.query(Ticket).filter(Ticket.id == draft.created_ticket_id).first()
+        if ticket:
+            db.add(
+                TicketComment(
+                    ticket_id=ticket.id,
+                    author=sender,
+                    message=text,
+                    is_internal_note=False,
+                )
+            )
+            db.commit()
+            return _reply(f"Added to ticket #{ticket.ticket_number}.\n\nA technician will follow up.")
 
     return _reply("This ticket draft is already complete. Start with a new issue to create another ticket.")

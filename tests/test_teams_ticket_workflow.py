@@ -90,6 +90,25 @@ class TeamsTicketWorkflowTests(unittest.TestCase):
                 reporter_name="Teams user",
             )
 
+    def test_create_ticket_allows_unassigned_teams_ticket(self):
+        draft = TeamsTicketDraft("conversation-1", "user-1")
+        draft.subject = "VPN unavailable"
+        draft.description = "The office VPN is unavailable."
+
+        session = FakeSession()
+        with patch(
+            "app.services.teams_ticket_workflow_service.next_ticket_number",
+            return_value=1201,
+        ):
+            result = create_ticket(
+                session,
+                draft,
+                reporter_name="Teams user",
+            )
+
+        self.assertEqual(result.ticket.ticket_number, 1201)
+        self.assertIsNone(result.ticket.customer_id)
+
 
 if __name__ == "__main__":
     unittest.main()
