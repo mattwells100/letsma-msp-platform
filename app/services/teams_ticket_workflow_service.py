@@ -250,6 +250,9 @@ def create_ticket(
         message=(
             f"Ticket #{ticket.ticket_number} created.\n\n"
             f"Issue: {ticket.subject}\n"
-            f"Status: {ticket.status.value}"
+            f"Status: {ticket.status.value}\n"
+            f"Category: {ticket.category or 'Pending'}\n"
+            f"Subcategory: {ticket.subcategory or 'Pending'}\n"
+            f"Priority: {ticket.priority.value if hasattr(ticket.priority, 'value') else ticket.priority}"
         ),
     )

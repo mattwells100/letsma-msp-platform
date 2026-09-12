@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Ticket, TicketComment
+from app.models import Ticket, TicketComment, TicketPriority
 from app.services.teams_reply_service import send_teams_reply
 from app.services.teams_intent_service import detect_intent, TeamsIntent
 from app.services.teams_conversation_memory import (
@@ -32,6 +32,84 @@ router = APIRouter(
 
 def _reply(text: str) -> dict:
     return {"type": "message", "text": text}
+
+
+async def _classify_draft(draft) -> None:
+    prompt = (
+        "Return exactly one JSON object with no Markdown. "
+        "The keys must be category, subcategory, priority, "
+        "estimated_minutes, confidence and reason.\n\n"
+        "Allowed categories and subcategories:\n"
+        f"{json.dumps(AI_TICKET_CATEGORIES)}\n\n"
+        "Priority must be Low, Normal, High or Critical. "
+        "Confidence must be Low, Medium or High. "
+        "estimated_minutes must be between 5 and 480.\n\n"
+        f"Ticket description:\n{draft.description}"
+    )
+    try:
+        suggestion = _parse_ticket_classification(
+            await azure_openai_service.classify_ticket(
+                prompt,
+                allowed_categories=AI_TICKET_CATEGORIES,
+            )
+        )
+        draft.category = suggestion.get("category")
+        draft.subcategory = suggestion.get("subcategory")
+        draft.priority = suggestion.get("priority") or "Normal"
+        draft.estimated_minutes = suggestion.get("estimated_minutes") or 30
+        draft.classification_confidence = suggestion.get("confidence")
+    except Exception as exc:
+        print(f"TEAMS_CLASSIFICATION_FAILED error={exc}")
+        draft.category = None
+        draft.subcategory = None
+        draft.priority = "Normal"
+
+
+async def _create_and_confirm_ticket(
+    db,
+    draft,
+    *,
+    sender: str,
+    service_url: str | None,
+    conversation_id: str | None,
+) -> dict:
+    result = create_ticket(
+        db,
+        draft,
+        reporter_name=sender,
+        service_url=service_url,
+    )
+    # Persist first so an unavailable or slow AI service cannot prevent the
+    # Teams message from becoming a ticket.
+    await _classify_draft(draft)
+    result.ticket.category = draft.category
+    result.ticket.subcategory = draft.subcategory
+    result.ticket.priority = next(
+        (
+            item
+            for item in TicketPriority
+            if item.value.casefold() == draft.priority.casefold()
+        ),
+        TicketPriority.NORMAL,
+    )
+    result.ticket.estimated_minutes = draft.estimated_minutes
+    db.add(result.ticket)
+    db.commit()
+    db.refresh(result.ticket)
+    remember_ticket_number(
+        db=db,
+        conversation_id=conversation_id,
+        ticket_number=result.ticket.ticket_number,
+    )
+    try:
+        await send_teams_reply(
+            db=db,
+            ticket=result.ticket,
+            message=result.message,
+        )
+    except Exception as exc:
+        print(f"TEAMS_CONFIRMATION_FAILED ticket={result.ticket.ticket_number} error={exc}")
+    return _reply(result.message)
 
 
 def _conversation_ticket(
@@ -431,18 +509,13 @@ async def receive_message(
         if issue_result.status != "collected":
             return _reply(issue_result.message)
 
-        result = create_ticket(
+        return await _create_and_confirm_ticket(
             db,
             draft,
-            reporter_name=sender,
+            sender=sender,
             service_url=service_url,
-        )
-        remember_ticket_number(
-            db=db,
             conversation_id=conversation_id,
-            ticket_number=result.ticket.ticket_number,
         )
-        return _reply(result.message)
 
     if draft.state == TicketDraftState.COLLECTING_CUSTOMER:
         result = collect_customer(db, draft, text)
@@ -457,34 +530,7 @@ async def receive_message(
         return _reply(result.message)
 
     if draft.state == TicketDraftState.CLASSIFYING:
-        try:
-            prompt = (
-                "Return exactly one JSON object with no Markdown. "
-                "The keys must be category, subcategory, priority, "
-                "estimated_minutes, confidence and reason.\n\n"
-                "Allowed categories and subcategories:\n"
-                f"{json.dumps(AI_TICKET_CATEGORIES)}\n\n"
-                "Priority must be Low, Normal, High or Critical. "
-                "Confidence must be Low, Medium or High. "
-                "estimated_minutes must be between 5 and 480.\n\n"
-                f"Ticket description:\n{draft.description}"
-            )
-            suggestion = _parse_ticket_classification(
-                await azure_openai_service.classify_ticket(
-                    prompt,
-                    allowed_categories=AI_TICKET_CATEGORIES,
-                )
-            )
-            draft.category = suggestion.get("category")
-            draft.subcategory = suggestion.get("subcategory")
-            draft.priority = suggestion.get("priority") or "Normal"
-            draft.estimated_minutes = suggestion.get("estimated_minutes") or 30
-            draft.classification_confidence = suggestion.get("confidence")
-        except Exception as exc:
-            print(f"TEAMS_CLASSIFICATION_FAILED error={exc}")
-            draft.category = None
-            draft.subcategory = None
-            draft.priority = "Normal"
+        await _classify_draft(draft)
         draft.state = TicketDraftState.AWAITING_CONFIRMATION
         teams_ticket_state_service.save(draft)
         return _reply(
@@ -499,30 +545,20 @@ async def receive_message(
             issue_result = collect_issue(draft, text)
             if issue_result.status != "collected":
                 return _reply(issue_result.message)
-            result = create_ticket(
+            return await _create_and_confirm_ticket(
                 db,
                 draft,
-                reporter_name=sender,
+                sender=sender,
                 service_url=service_url,
-            )
-            remember_ticket_number(
-                db=db,
                 conversation_id=conversation_id,
-                ticket_number=result.ticket.ticket_number,
             )
-            return _reply(result.message)
-        result = create_ticket(
+        return await _create_and_confirm_ticket(
             db,
             draft,
-            reporter_name=sender,
+            sender=sender,
             service_url=service_url,
-        )
-        remember_ticket_number(
-            db=db,
             conversation_id=conversation_id,
-            ticket_number=result.ticket.ticket_number,
         )
-        return _reply(result.message)
 
     if draft.state == TicketDraftState.COMPLETED and draft.created_ticket_id:
         ticket = db.query(Ticket).filter(Ticket.id == draft.created_ticket_id).first()
