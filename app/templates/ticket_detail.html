@@ -24,6 +24,21 @@
 
 <div class="row g-4">
     <div class="col-md-8">
+        {% if related_tickets %}
+        <div class="card border-success mb-3">
+            <div class="card-header"><i class="bi bi-journal-check me-1"></i> Learned fixes from resolved tickets</div>
+            <div class="card-body">
+                <div class="small text-muted mb-2">Related resolved tickets with the same classification:</div>
+                {% for related in related_tickets %}
+                <div class="border-bottom py-2">
+                    <a href="/tickets/{{ related.id }}">Ticket #{{ related.ticket_number }}: {{ related.subject }}</a>
+                    {% set resolution_comments = related.comments|selectattr('is_internal_note', 'equalto', false)|list %}
+                    {% if resolution_comments %}<div class="small mt-1"><strong>Resolution:</strong> {{ resolution_comments[-1].message }}</div>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
         <div class="card stat-card p-3 mb-3">
             <div style="white-space: pre-wrap; word-break: break-word;">{{ ticket.description or 'No description provided.' }}</div>
         </div>

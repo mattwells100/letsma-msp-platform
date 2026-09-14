@@ -30,6 +30,23 @@
 
 <div id="contactsSyncResult" class="mb-3"></div>
 
+<div class="row g-3 mb-4">
+    <div class="col-lg-7">
+        <div class="card stat-card p-3 h-100">
+            <h5 class="page-title">Customer activity</h5>
+            <div style="max-height:420px;overflow:auto">
+            {% for event in timeline %}
+                <div class="d-flex gap-3 py-2 border-bottom"><div class="small text-muted text-nowrap">{{ event.at.strftime('%d %b %H:%M') if event.at else '-' }}</div><div><span class="badge bg-light text-dark border">{{ event.kind }}</span>{% if event.href %}<a href="{{ event.href }}" class="d-block text-decoration-none">{{ event.text }}</a>{% else %}<div>{{ event.text }}</div>{% endif %}</div></div>
+            {% else %}<div class="text-muted">No activity recorded yet.</div>{% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card stat-card p-3 mb-3"><h5 class="page-title">Customer health</h5><div class="row text-center"><div class="col-4"><strong class="fs-4">{{ customer_health.overall }}</strong><div class="small text-muted">Overall</div></div><div class="col-4"><strong class="fs-4">{{ customer_health.support }}</strong><div class="small text-muted">Support</div></div><div class="col-4"><strong class="fs-4">{{ customer_health.devices }}</strong><div class="small text-muted">Devices</div></div></div></div>
+        <div class="card stat-card p-3"><h5 class="page-title">Customer insights</h5><div class="small fw-semibold">Current issues</div><ul class="small mb-2">{% for item in customer_insights.current_issues %}<li>{{ item }}</li>{% endfor %}</ul><div class="small fw-semibold">Trending problems</div><ul class="small mb-2">{% for item in customer_insights.trending_problems %}<li>{{ item }}</li>{% endfor %}</ul><div class="small fw-semibold">Recommended actions</div><ul class="small mb-0">{% for item in customer_insights.recommended_actions %}<li>{{ item }}</li>{% endfor %}</ul></div>
+    </div>
+</div>
+
 <div class="row g-4">
     <div class="col-md-6">
         <div class="card stat-card p-3 mb-4">

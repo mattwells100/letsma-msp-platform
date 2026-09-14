@@ -109,9 +109,32 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
     endpoints = db.query(models.Endpoint).filter_by(customer_id=customer_id).all()
     license_summary = db.query(models.TenantLicenseSummary).filter_by(customer_id=customer_id).all()
     sorted_contacts = sorted(customer.contacts, key=_contact_sort_key)
+    timeline = []
+    for ticket in tickets:
+        timeline.append({"at": ticket.created_at, "kind": "Ticket", "text": f"Ticket #{ticket.ticket_number} created: {ticket.subject}", "href": f"/tickets/{ticket.id}"})
+        for comment in ticket.comments:
+            timeline.append({"at": comment.created_at, "kind": "Internal note" if comment.is_internal_note else "Ticket update", "text": f"{comment.author}: {comment.message}", "href": f"/tickets/{ticket.id}"})
+    for message in db.query(models.WhatsAppMessage).filter_by(customer_id=customer_id).all():
+        timeline.append({"at": message.created_at, "kind": "WhatsApp", "text": message.body or "WhatsApp message", "href": None})
+    teams_messages = db.query(models.TeamsMessage).join(models.Ticket, models.TeamsMessage.ticket_id == models.Ticket.id).filter(models.Ticket.customer_id == customer_id).all()
+    for message in teams_messages:
+        timeline.append({"at": message.created_at, "kind": "Teams", "text": message.body or "Teams message", "href": f"/tickets/{message.ticket_id}" if message.ticket_id else None})
+    for invoice in invoices:
+        timeline.append({"at": invoice.created_at, "kind": "Invoice", "text": f"Invoice {invoice.invoice_number or invoice.id[:8]} created (£{invoice.total:.2f})", "href": "/billing"})
+    timeline.sort(key=lambda item: item["at"] or datetime.min, reverse=True)
+    open_tickets = [ticket for ticket in tickets if str(getattr(ticket.status, "value", ticket.status)) not in {"Resolved", "Closed"}]
+    category_counts = {}
+    for ticket in tickets:
+        if ticket.category:
+            category_counts[ticket.category] = category_counts.get(ticket.category, 0) + 1
+    trending_problems = [name for name, _ in sorted(category_counts.items(), key=lambda item: item[1], reverse=True)[:3]]
+    warning_endpoints = [endpoint for endpoint in endpoints if str(getattr(endpoint.status, "value", endpoint.status)) != "Online"]
+    customer_health = {"support": max(0, 100 - len(open_tickets) * 10), "devices": max(0, 100 - len(warning_endpoints) * 20), "overall": max(0, min(100, 100 - len(open_tickets) * 5 - len(warning_endpoints) * 10))}
+    customer_insights = {"current_issues": [f"{len(open_tickets)} open ticket(s)"] if open_tickets else ["No open tickets"], "trending_problems": trending_problems or ["Not enough ticket history yet"], "recommended_actions": ["Review unresolved tickets" if open_tickets else "Schedule a service review", "Investigate offline or warning endpoints" if warning_endpoints else "Continue endpoint monitoring"]}
     return templates.TemplateResponse("customer_detail.html", {
         "request": request, "customer": customer, "tickets": tickets, "invoices": invoices,
         "endpoints": endpoints, "license_summary": license_summary, "sorted_contacts": sorted_contacts,
+        "timeline": timeline[:100], "customer_health": customer_health, "customer_insights": customer_insights,
         "active_page": "customers",
     })
 
@@ -209,9 +232,19 @@ def ticket_detail_page(ticket_id: str, request: Request, db: Session = Depends(g
     # page (lets a technician assign/reassign the customer, e.g. for a
     # ticket auto-created from an unmatched helpdesk email).
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
+    related_query = db.query(models.Ticket).filter(
+        models.Ticket.id != ticket.id,
+        models.Ticket.status.in_([models.TicketStatus.RESOLVED, models.TicketStatus.CLOSED]),
+        models.Ticket.deleted_at.is_(None),
+    )
+    if ticket.category:
+        related_query = related_query.filter(models.Ticket.category == ticket.category)
+    if ticket.subcategory:
+        related_query = related_query.filter(models.Ticket.subcategory == ticket.subcategory)
+    related_tickets = related_query.order_by(models.Ticket.resolved_at.desc()).limit(5).all()
     return templates.TemplateResponse("ticket_detail.html", {
         "request": request, "ticket": ticket, "time_entries": time_entries, "active_page": "tickets",
-        "customers": customers,
+        "customers": customers, "related_tickets": related_tickets,
     })
 
 
