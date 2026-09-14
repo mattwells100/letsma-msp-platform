@@ -180,14 +180,6 @@ async def _create_and_confirm_ticket(
         conversation_id=conversation_id,
         ticket_number=result.ticket.ticket_number,
     )
-    try:
-        await send_teams_reply(
-            db=db,
-            ticket=result.ticket,
-            message=confirmation_message,
-        )
-    except Exception as exc:
-        print(f"TEAMS_CONFIRMATION_FAILED ticket={result.ticket.ticket_number} error={exc}")
     return _reply(confirmation_message)
 
 
