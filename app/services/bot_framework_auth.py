@@ -43,12 +43,21 @@ async def validate_bot_framework_token(authorization: str) -> dict:
             item for item in await _signing_keys()
             if item.get("kid") == header.get("kid")
         )
-        return jwt.decode(
+        claims = jwt.decode(
             token,
             key,
             algorithms=[header.get("alg", "RS256")],
             audience=settings.TEAMS_BOT_APP_ID,
             options={"verify_at_hash": False},
         )
+        issuer = claims.get("iss")
+        allowed_issuers = {
+            "https://api.botframework.com",
+            "https://sts.windows.net/" + settings.TEAMS_BOT_TENANT_ID + "/",
+            "https://login.microsoftonline.com/" + settings.TEAMS_BOT_TENANT_ID + "/v2.0",
+        }
+        if issuer not in allowed_issuers:
+            raise ValueError("unexpected Bot Framework token issuer")
+        return claims
     except Exception as exc:
         raise HTTPException(401, "Invalid Bot Framework bearer token") from exc

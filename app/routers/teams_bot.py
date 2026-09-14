@@ -248,7 +248,17 @@ async def receive_message(
     # the legacy unauthenticated route available only for local/custom callers
     # when the Bot Framework app ID has not been configured.
     if payload.get("channelId") == "msteams":
-        await validate_bot_framework_token(authorization)
+        try:
+            claims = await validate_bot_framework_token(authorization)
+            print(
+                "[TEAMS_BOT_ACTIVITY] "
+                f"type={payload.get('type')} "
+                f"conversation={bool((payload.get('conversation') or {}).get('id'))} "
+                f"subject={claims.get('sub', 'unknown')}"
+            )
+        except Exception as exc:
+            print(f"[TEAMS_BOT_AUTH_FAILED] error={type(exc).__name__}")
+            raise
 
     if payload.get("type") != "message":
         return _reply("")
