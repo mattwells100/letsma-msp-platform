@@ -763,7 +763,12 @@ async def receive_message(
         draft.reset()
         draft.state = TicketDraftState.COLLECTING_ISSUE
         teams_ticket_state_service.save(draft)
-        return _reply("Please describe the issue you want to report.")
+        return await _reply_and_notify(
+            db,
+            conversation_id,
+            service_url,
+            "Please describe the issue you want to report.",
+        )
 
     draft = teams_ticket_state_service.get(conversation_id) if conversation_id else None
     if draft is None:
