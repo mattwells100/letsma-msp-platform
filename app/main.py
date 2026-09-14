@@ -11,6 +11,7 @@ API docs are auto-generated at /docs (Swagger UI) and /redoc.
 from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy import inspect, text
 
 from app.database import Base, engine
 from app.config import settings
@@ -31,6 +32,27 @@ from app.routers import recurring_billing
 from app.routers import teams_bot
 
 Base.metadata.create_all(bind=engine)
+
+
+def _ensure_customer_sla_schema():
+    """Add the customer SLA columns when upgrading an existing database."""
+    columns = {
+        "sla_plan": "VARCHAR",
+        "sla_critical_hours": "INTEGER",
+        "sla_high_hours": "INTEGER",
+        "sla_normal_hours": "INTEGER",
+        "sla_low_hours": "INTEGER",
+    }
+    existing = {column["name"] for column in inspect(engine).get_columns("customers")}
+    missing = {name: definition for name, definition in columns.items() if name not in existing}
+    if not missing:
+        return
+    with engine.begin() as connection:
+        for name, definition in missing.items():
+            connection.execute(text(f"ALTER TABLE customers ADD COLUMN {name} {definition}"))
+
+
+_ensure_customer_sla_schema()
 
 app = FastAPI(
     title=settings.APP_NAME,
