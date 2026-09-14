@@ -141,7 +141,13 @@ async def _create_and_confirm_ticket(
     conversation_id: str | None,
     confirmed: bool = False,
 ) -> dict:
-    await _classify_draft(draft)
+    if confirmed:
+        print(
+            f"TEAMS_TICKET_CONFIRM ticket_subject={draft.subject!r} "
+            f"description_present={bool(draft.description)}"
+        )
+    else:
+        await _classify_draft(draft)
     if not confirmed:
         draft.state = TicketDraftState.AWAITING_CONFIRMATION
         teams_ticket_state_service.save(draft)
