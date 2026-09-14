@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Request, Depends, Header
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -104,9 +105,12 @@ async def _classify_draft(draft) -> None:
     )
     try:
         suggestion = _parse_ticket_classification(
-            await azure_openai_service.classify_ticket(
-                prompt,
-                allowed_categories=AI_TICKET_CATEGORIES,
+            await asyncio.wait_for(
+                azure_openai_service.classify_ticket(
+                    prompt,
+                    allowed_categories=AI_TICKET_CATEGORIES,
+                ),
+                timeout=5,
             )
         )
         draft.category = suggestion.get("category")
@@ -740,6 +744,18 @@ async def receive_message(
 
     if not text:
         return _reply("Please enter a ticket description.")
+
+    if text.casefold() in {"create ticket", "raise ticket", "open ticket", "new ticket"}:
+        draft = teams_ticket_state_service.get(conversation_id) if conversation_id else None
+        if draft is None:
+            draft = teams_ticket_state_service.create(
+                conversation_id=conversation_id or service_url or sender,
+                user_id=sender,
+            )
+        draft.reset()
+        draft.state = TicketDraftState.COLLECTING_ISSUE
+        teams_ticket_state_service.save(draft)
+        return _reply("Please describe the issue you want to report.")
 
     draft = teams_ticket_state_service.get(conversation_id) if conversation_id else None
     if draft is None:
