@@ -21,6 +21,11 @@
             </li>
             <li>
                 <a href="/customers" class="nav-link {% if active_page=='customers' %}active{% endif %}"><i class="bi bi-people me-2"></i>Customers</a>
+            {% if request.session.get('user', {}).get('role') == 'Admin' %}
+            <li>
+                <a href="/users" class="nav-link {% if active_page=='users' %}active{% endif %}"><i class="bi bi-person-gear me-2"></i>Users</a>
+            </li>
+            {% endif %}
             </li>
             <li>
                 <a href="/tickets" class="nav-link {% if active_page=='tickets' %}active{% endif %}"><i class="bi bi-life-preserver me-2"></i>Helpdesk</a>

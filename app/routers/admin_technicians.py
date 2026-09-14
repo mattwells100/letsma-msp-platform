@@ -10,7 +10,7 @@ before they've ever signed in themselves).
 """
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -20,9 +20,12 @@ from app import models
 router = APIRouter(prefix="/api/admin/technicians", tags=["Admin"])
 
 
-def _check_agent_key(x_agent_key: str = Header(None)):
+def _check_agent_key_or_admin(request: Request, x_agent_key: str = Header(None)):
     import os
     expected = os.environ.get("AGENT_API_KEY")
+    session_user = request.session.get("user")
+    if session_user and session_user.get("role") == "Admin":
+        return session_user
     if not expected or x_agent_key != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing X-Agent-Key")
 
@@ -34,7 +37,7 @@ class TechnicianCreate(BaseModel):
 
 
 @router.get("/", response_model=None)
-def list_technicians(db: Session = Depends(get_db), _=Depends(_check_agent_key)):
+def list_technicians(db: Session = Depends(get_db), _=Depends(_check_agent_key_or_admin)):
     rows = db.query(models.Technician).order_by(models.Technician.name).all()
     return [
         {"id": t.id, "name": t.name, "email": t.email, "role": t.role, "active": t.active}
@@ -43,7 +46,7 @@ def list_technicians(db: Session = Depends(get_db), _=Depends(_check_agent_key))
 
 
 @router.post("/")
-def add_technician(payload: TechnicianCreate, db: Session = Depends(get_db), _=Depends(_check_agent_key)):
+def add_technician(payload: TechnicianCreate, db: Session = Depends(get_db), _=Depends(_check_agent_key_or_admin)):
     """
     Pre-registers a staff member so they can sign in via Microsoft SSO.
     No password is set - they authenticate entirely via Entra ID; this
@@ -53,6 +56,9 @@ def add_technician(payload: TechnicianCreate, db: Session = Depends(get_db), _=D
     existing = db.query(models.Technician).filter(models.Technician.email.ilike(email)).first()
     if existing:
         raise HTTPException(400, f"A technician with email '{email}' already exists (id={existing.id})")
+
+    if payload.role not in {"Technician", "Manager", "Admin"}:
+        raise HTTPException(400, "role must be Technician, Manager, or Admin")
 
     technician = models.Technician(
         name=payload.name, email=email, password_hash=None,
@@ -65,7 +71,7 @@ def add_technician(payload: TechnicianCreate, db: Session = Depends(get_db), _=D
 
 
 @router.patch("/{technician_id}/deactivate")
-def deactivate_technician(technician_id: str, db: Session = Depends(get_db), _=Depends(_check_agent_key)):
+def deactivate_technician(technician_id: str, db: Session = Depends(get_db), _=Depends(_check_agent_key_or_admin)):
     """Revokes login access without deleting the row (preserves any
     historical references, e.g. Ticket.assigned_to)."""
     technician = db.query(models.Technician).get(technician_id)
@@ -77,10 +83,31 @@ def deactivate_technician(technician_id: str, db: Session = Depends(get_db), _=D
 
 
 @router.patch("/{technician_id}/reactivate")
-def reactivate_technician(technician_id: str, db: Session = Depends(get_db), _=Depends(_check_agent_key)):
+def reactivate_technician(technician_id: str, db: Session = Depends(get_db), _=Depends(_check_agent_key_or_admin)):
     technician = db.query(models.Technician).get(technician_id)
     if not technician:
         raise HTTPException(404, "Technician not found")
     technician.active = True
     db.commit()
     return {"ok": True, "id": technician.id, "active": technician.active}
+
+
+class TechnicianRoleUpdate(BaseModel):
+    role: str
+
+
+@router.patch("/{technician_id}/role")
+def update_technician_role(
+    technician_id: str,
+    payload: TechnicianRoleUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(_check_agent_key_or_admin),
+):
+    if payload.role not in {"Technician", "Manager", "Admin"}:
+        raise HTTPException(400, "role must be Technician, Manager, or Admin")
+    technician = db.query(models.Technician).get(technician_id)
+    if not technician:
+        raise HTTPException(404, "Technician not found")
+    technician.role = payload.role
+    db.commit()
+    return {"ok": True, "id": technician.id, "role": technician.role}

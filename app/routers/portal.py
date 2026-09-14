@@ -31,7 +31,7 @@ from sqlalchemy import func
 
 from app.database import get_db
 from app import models
-from app.deps import require_login_page, require_manager_or_admin
+from app.deps import require_login_page, require_manager_or_admin, require_admin_page
 from app.services.knowledge_base_service import list_customer_knowledge_articles
 
 router = APIRouter(tags=["Portal"])
@@ -398,6 +398,14 @@ def email_settings_page(request: Request, _=Depends(require_login_page)):
     for the underlying logic and API)."""
     return templates.TemplateResponse("email_settings.html", {
         "request": request, "active_page": "email-settings",
+    })
+
+
+@router.get("/users")
+def users_page(request: Request, db: Session = Depends(get_db), _=Depends(require_admin_page)):
+    users = db.query(models.Technician).order_by(models.Technician.name).all()
+    return templates.TemplateResponse("users.html", {
+        "request": request, "users": users, "active_page": "users",
     })
 
 
