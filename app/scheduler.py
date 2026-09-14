@@ -25,6 +25,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.database import SessionLocal
 from app.services.email_ingestion_service import poll_and_process_helpdesk_inbox
 from app.services.purchase_email_ingestion_service import poll_and_process_orders_inbox
+from app.services.sla_service import check_sla_breaches
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -71,8 +72,21 @@ async def _scheduled_orders_poll_job():
         db.close()
 
 
+async def _scheduled_sla_breach_job():
+    db = SessionLocal()
+    try:
+        alerted = await check_sla_breaches(db)
+        if alerted:
+            logger.warning("SLA breach monitor alerted for ticket(s): %s", alerted)
+    except Exception as e:
+        logger.error("SLA breach monitor failed: %s", e)
+    finally:
+        db.close()
+
+
 def start_scheduler():
     if not scheduler.running:
         scheduler.add_job(_scheduled_helpdesk_poll_job, "interval", minutes=5, id="helpdesk_mailbox_poll")
         scheduler.add_job(_scheduled_orders_poll_job, "interval", minutes=5, id="orders_mailbox_poll")
+        scheduler.add_job(_scheduled_sla_breach_job, "interval", minutes=5, id="sla_breach_monitor")
         scheduler.start()

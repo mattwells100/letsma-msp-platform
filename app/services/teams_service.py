@@ -107,6 +107,21 @@ async def notify_endpoint_alert(hostname: str, customer_name: str, reason: str):
     )
 
 
+async def notify_sla_breach(ticket: Ticket):
+    customer_name = ticket.customer.name if ticket.customer else "Unassigned customer"
+    due_at = ticket.sla_due_at.isoformat(sep=" ", timespec="minutes") if ticket.sla_due_at else "unknown"
+    await post_adaptive_card(
+        title=f"🚨 SLA Breach: Ticket #{ticket.ticket_number}",
+        facts={
+            "Customer": customer_name,
+            "Priority": ticket.priority.value if hasattr(ticket.priority, "value") else ticket.priority,
+            "Assigned to": ticket.technician.name if ticket.technician else "Unassigned",
+            "Due": due_at,
+        },
+        text=ticket.subject,
+    )
+
+
 def parse_inbound_activity(db: Session, activity: dict) -> Ticket | None:
     """
     Parses a Teams "outgoing webhook" activity payload.
