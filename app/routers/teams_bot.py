@@ -745,7 +745,15 @@ async def receive_message(
     if not text:
         return _reply("Please enter a ticket description.")
 
-    if text.casefold() in {"create ticket", "raise ticket", "open ticket", "new ticket"}:
+    if text.casefold() in {
+        "create ticket",
+        "create a ticket",
+        "raise ticket",
+        "raise a ticket",
+        "open ticket",
+        "open a ticket",
+        "new ticket",
+    }:
         draft = teams_ticket_state_service.get(conversation_id) if conversation_id else None
         if draft is None:
             draft = teams_ticket_state_service.create(
