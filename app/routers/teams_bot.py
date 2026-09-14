@@ -268,6 +268,8 @@ async def receive_message(
     action = None
     if isinstance(activity_value, dict):
         action = activity_value.get("action")
+        if isinstance(action, dict):
+            action = (action.get("data") or {}).get("action")
         if not action and isinstance(activity_value.get("data"), dict):
             action = activity_value["data"].get("action")
     text = (payload.get("text") or "").strip()
