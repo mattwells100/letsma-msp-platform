@@ -810,6 +810,7 @@ async def receive_message(
             sender_email=sender_email,
             service_url=service_url,
             conversation_id=conversation_id,
+            confirmed=True,
         )
 
     if draft.state == TicketDraftState.CLASSIFYING:
