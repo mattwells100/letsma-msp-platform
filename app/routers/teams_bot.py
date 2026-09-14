@@ -260,11 +260,16 @@ async def receive_message(
             print(f"[TEAMS_BOT_AUTH_FAILED] error={type(exc).__name__}")
             raise
 
-    if payload.get("type") != "message":
+    activity_type = payload.get("type")
+    if activity_type not in {"message", "invoke"}:
         return _reply("")
 
     activity_value = payload.get("value") or {}
-    action = activity_value.get("action") if isinstance(activity_value, dict) else None
+    action = None
+    if isinstance(activity_value, dict):
+        action = activity_value.get("action")
+        if not action and isinstance(activity_value.get("data"), dict):
+            action = activity_value["data"].get("action")
     text = (payload.get("text") or "").strip()
     if action == "confirm_ticket":
         text = "yes"
