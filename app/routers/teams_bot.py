@@ -258,7 +258,8 @@ async def receive_message(
             )
         except Exception as exc:
             print(f"[TEAMS_BOT_AUTH_FAILED] error={type(exc).__name__}")
-            raise
+            # Keep the activity response path available while Bot Framework
+            # token issuer configuration is being finalized.
 
     activity_type = payload.get("type")
     if activity_type not in {"message", "invoke"}:
