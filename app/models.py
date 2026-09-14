@@ -100,6 +100,7 @@ class Customer(Base):
 
     contacts = relationship("Contact", back_populates="customer", cascade="all, delete-orphan")
     tickets = relationship("Ticket", back_populates="customer", cascade="all, delete-orphan")
+    knowledge_articles = relationship("KnowledgeArticle", back_populates="customer", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="customer", cascade="all, delete-orphan")
     licenses = relationship("LicenseAssignment", back_populates="customer", cascade="all, delete-orphan")
     endpoints = relationship("Endpoint", back_populates="customer", cascade="all, delete-orphan")
@@ -241,6 +242,7 @@ class Ticket(Base):
     contact = relationship("Contact")
     technician = relationship("Technician")
     comments = relationship("TicketComment", back_populates="ticket", cascade="all, delete-orphan")
+    knowledge_articles = relationship("KnowledgeArticle", back_populates="ticket", cascade="all, delete-orphan")
     attachments = relationship("TicketAttachment", back_populates="ticket", cascade="all, delete-orphan")
 
 
@@ -255,6 +257,25 @@ class TicketComment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     ticket = relationship("Ticket", back_populates="comments")
+
+
+class KnowledgeArticle(Base):
+    __tablename__ = "knowledge_articles"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=True, index=True)
+    source_ticket_id = Column(String, ForeignKey("tickets.id"), nullable=True, index=True)
+    category = Column(String, nullable=False, index=True)
+    subcategory = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    summary = Column(Text, nullable=False)
+    resolution = Column(Text, nullable=True)
+    confidence = Column(String, nullable=True, default="Medium")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    customer = relationship("Customer", back_populates="knowledge_articles")
+    ticket = relationship("Ticket", back_populates="knowledge_articles")
 
 
 class TicketAttachment(Base):

@@ -131,11 +131,14 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
     warning_endpoints = [endpoint for endpoint in endpoints if str(getattr(endpoint.status, "value", endpoint.status)) != "Online"]
     customer_health = {"support": max(0, 100 - len(open_tickets) * 10), "devices": max(0, 100 - len(warning_endpoints) * 20), "overall": max(0, min(100, 100 - len(open_tickets) * 5 - len(warning_endpoints) * 10))}
     customer_insights = {"current_issues": [f"{len(open_tickets)} open ticket(s)"] if open_tickets else ["No open tickets"], "trending_problems": trending_problems or ["Not enough ticket history yet"], "recommended_actions": ["Review unresolved tickets" if open_tickets else "Schedule a service review", "Investigate offline or warning endpoints" if warning_endpoints else "Continue endpoint monitoring"]}
+    knowledge_articles = list(models.KnowledgeArticle.filter_by(customer_id=customer_id).order_by(models.KnowledgeArticle.updated_at.desc()).limit(5).all()) if hasattr(models.KnowledgeArticle, "filter_by") else []
+    if not knowledge_articles:
+        knowledge_articles = []
     return templates.TemplateResponse("customer_detail.html", {
         "request": request, "customer": customer, "tickets": tickets, "invoices": invoices,
         "endpoints": endpoints, "license_summary": license_summary, "sorted_contacts": sorted_contacts,
         "timeline": timeline[:100], "customer_health": customer_health, "customer_insights": customer_insights,
-        "active_page": "customers",
+        "knowledge_articles": knowledge_articles, "active_page": "customers",
     })
 
 
@@ -232,16 +235,23 @@ def ticket_detail_page(ticket_id: str, request: Request, db: Session = Depends(g
     # page (lets a technician assign/reassign the customer, e.g. for a
     # ticket auto-created from an unmatched helpdesk email).
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
-    related_query = db.query(models.Ticket).filter(
-        models.Ticket.id != ticket.id,
-        models.Ticket.status.in_([models.TicketStatus.RESOLVED, models.TicketStatus.CLOSED]),
-        models.Ticket.deleted_at.is_(None),
+    related_query = db.query(models.KnowledgeArticle).filter(
+        models.KnowledgeArticle.source_ticket_id != ticket.id,
+        models.KnowledgeArticle.customer_id == ticket.customer_id,
     )
     if ticket.category:
-        related_query = related_query.filter(models.Ticket.category == ticket.category)
+        related_query = related_query.filter(models.KnowledgeArticle.category == ticket.category)
     if ticket.subcategory:
-        related_query = related_query.filter(models.Ticket.subcategory == ticket.subcategory)
-    related_tickets = related_query.order_by(models.Ticket.resolved_at.desc()).limit(5).all()
+        related_query = related_query.filter(models.KnowledgeArticle.subcategory == ticket.subcategory)
+
+    related_articles = related_query.order_by(models.KnowledgeArticle.updated_at.desc()).limit(5).all()
+    related_tickets = []
+    for article in related_articles:
+        if article.source_ticket_id:
+            related_ticket = db.query(models.Ticket).get(article.source_ticket_id)
+            if related_ticket and related_ticket.deleted_at is None:
+                related_tickets.append(related_ticket)
+
     return templates.TemplateResponse("ticket_detail.html", {
         "request": request, "ticket": ticket, "time_entries": time_entries, "active_page": "tickets",
         "customers": customers, "related_tickets": related_tickets,

@@ -2,7 +2,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.models import TicketPriority, TicketStatus
+from app.models import KnowledgeArticle, TicketPriority, TicketStatus
+from app.services.knowledge_base_service import (
+    list_customer_knowledge_articles,
+    upsert_knowledge_article,
+)
 from app.services.teams_customer_resolution_service import (
     CustomerResolution,
     CustomerResolutionStatus,
@@ -17,18 +21,46 @@ from app.services.teams_issue_workflow_service import collect_issue
 from app.routers.teams_bot import _match_teams_sender
 
 
+class FakeQuery:
+    def __init__(self, items):
+        self.items = items
+
+    def filter_by(self, **kwargs):
+        matches = []
+        for item in self.items:
+            ok = True
+            for key, value in kwargs.items():
+                if getattr(item, key, None) != value:
+                    ok = False
+                    break
+            if ok:
+                matches.append(item)
+        return FakeQuery(matches)
+
+    def first(self):
+        return self.items[0] if self.items else None
+
+
 class FakeSession:
     def __init__(self):
         self.added = []
+        self.articles = []
 
     def add(self, value):
         self.added.append(value)
+        if isinstance(value, KnowledgeArticle):
+            self.articles.append(value)
 
     def commit(self):
         return None
 
     def refresh(self, value):
         value.status = TicketStatus.NEW
+
+    def query(self, model):
+        if model is KnowledgeArticle:
+            return FakeQuery(self.articles)
+        return FakeQuery([])
 
 
 class TeamsTicketWorkflowTests(unittest.TestCase):
@@ -152,6 +184,52 @@ class TeamsTicketWorkflowTests(unittest.TestCase):
         self.assertEqual(draft.contact_id, "contact-1")
         self.assertEqual(draft.customer_id, "customer-1")
         self.assertEqual(draft.customer_name, "Acme Ltd")
+
+    def test_resolved_ticket_creates_knowledge_article(self):
+        ticket = SimpleNamespace(
+            id="ticket-knowledge-1",
+            customer_id="customer-1",
+            category="Microsoft 365",
+            subcategory="Teams",
+            subject="Teams meeting audio issue",
+            description="Teams meeting audio cut out for remote users.",
+            comments=[
+                SimpleNamespace(
+                    author="Support",
+                    message="Confirmed the issue was caused by an outdated Teams client. Updated devices and issue cleared.",
+                    is_internal_note=False,
+                )
+            ],
+            status=TicketStatus.RESOLVED,
+            resolved_at=None,
+        )
+
+        article = upsert_knowledge_article(FakeSession(), ticket)
+
+        self.assertIsInstance(article, KnowledgeArticle)
+        self.assertEqual(article.customer_id, "customer-1")
+        self.assertEqual(article.category, "Microsoft 365")
+        self.assertEqual(article.subcategory, "Teams")
+        self.assertIn("Teams", article.title)
+        self.assertIn("outdated teams client", article.summary.lower())
+
+    def test_list_customer_knowledge_articles_returns_latest_fix(self):
+        session = FakeSession()
+        article = KnowledgeArticle(
+            id="kb-1",
+            customer_id="customer-1",
+            category="Microsoft 365",
+            subcategory="Teams",
+            title="Microsoft 365: Teams fix",
+            summary="Confirmed the issue was caused by an outdated Teams client.",
+            resolution="Updated devices and issue cleared.",
+        )
+        session.add(article)
+
+        results = list_customer_knowledge_articles(session, "customer-1", limit=5)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].subcategory, "Teams")
 
 
 if __name__ == "__main__":

@@ -148,6 +148,15 @@ def update_ticket(ticket_id: str, payload: schemas.TicketUpdate, background_task
     db.commit()
     db.refresh(ticket)
 
+    if getattr(ticket.status, "value", ticket.status) in (
+        models.TicketStatus.RESOLVED.value,
+        models.TicketStatus.CLOSED.value,
+    ):
+        from app.services.knowledge_base_service import upsert_knowledge_article
+
+        upsert_knowledge_article(db, ticket)
+        db.commit()
+
     if "status" in updates:
         background_tasks.add_task(
             _notify_whatsapp_status, ticket.id,
