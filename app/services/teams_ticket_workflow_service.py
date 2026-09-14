@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import Ticket, TicketPriority, TicketSource
+from app.models import Customer, Ticket, TicketPriority, TicketSource
 from app.services.ticket_numbering import next_ticket_number
 from app.services.teams_ticket_state import (
     TeamsTicketDraft,
@@ -226,6 +227,10 @@ def create_ticket(
         TicketPriority.NORMAL,
     )
 
+    customer = db.query(Customer).filter_by(id=draft.customer_id).first() if draft.customer_id else None
+    customer_sla_hours = getattr(customer, f"sla_{priority.value.lower()}_hours", None) if customer else None
+    sla_hours = customer_sla_hours or {"Critical": 2, "High": 4, "Normal": 8, "Low": 24}[priority.value]
+
     ticket_number = next_ticket_number(db)
     print(f"TEAMS_CREATE_NUMBER ticket_number={ticket_number}")
     ticket = Ticket(
@@ -243,6 +248,7 @@ def create_ticket(
         reporter_email=reporter_email,
         conversation_id=draft.conversation_id,
         external_ref=service_url,
+        sla_due_at=datetime.utcnow() + timedelta(hours=sla_hours),
     )
     db.add(ticket)
     db.commit()

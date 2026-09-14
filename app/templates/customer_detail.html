@@ -30,6 +30,35 @@
 
 <div id="contactsSyncResult" class="mb-3"></div>
 
+<div class="card stat-card p-3 mb-4">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+            <h5 class="page-title mb-1">Customer SLA</h5>
+            <div class="small text-muted">Set the first-response target used when new tickets are created for this customer.</div>
+        </div>
+        <span class="badge bg-light text-dark border">Hours from ticket creation</span>
+    </div>
+    <div id="slaResult" class="mt-3"></div>
+    <form id="slaForm" class="row g-3 mt-1" onsubmit="return saveCustomerSla(event)">
+        <div class="col-lg-4">
+            <label class="form-label small">Plan name</label>
+            <input id="slaPlan" class="form-control form-control-sm" maxlength="100" value="{{ customer.sla_plan or '' }}" placeholder="e.g. Managed Support Gold">
+        </div>
+        {% for key, label, fallback in [('critical', 'Critical', sla_defaults.critical), ('high', 'High', sla_defaults.high), ('normal', 'Normal', sla_defaults.normal), ('low', 'Low', sla_defaults.low)] %}
+        <div class="col-6 col-lg-2">
+            <label class="form-label small">{{ label }}</label>
+            <div class="input-group input-group-sm">
+                <input id="sla{{ key|capitalize }}" class="form-control" type="number" min="1" max="720" required value="{% if key == 'critical' %}{{ customer.sla_critical_hours or fallback }}{% elif key == 'high' %}{{ customer.sla_high_hours or fallback }}{% elif key == 'normal' %}{{ customer.sla_normal_hours or fallback }}{% else %}{{ customer.sla_low_hours or fallback }}{% endif %}">
+                <span class="input-group-text">hrs</span>
+            </div>
+        </div>
+        {% endfor %}
+        <div class="col-12 d-flex justify-content-end">
+            <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-save me-1"></i>Save SLA</button>
+        </div>
+    </form>
+</div>
+
 <div class="row g-3 mb-4">
     <div class="col-lg-7">
         <div class="card stat-card p-3 h-100">
@@ -149,6 +178,31 @@ async function syncLicenses(e) {
     e.preventDefault();
     const resp = await fetch(e.target.action, {method: 'POST'});
     if (resp.ok) { window.location.reload(); } else { alert('Sync failed: ' + await resp.text()); }
+    return false;
+}
+
+async function saveCustomerSla(e) {
+    e.preventDefault();
+    const result = document.getElementById('slaResult');
+    const payload = {
+        plan: document.getElementById('slaPlan').value,
+        critical_hours: Number(document.getElementById('slaCritical').value),
+        high_hours: Number(document.getElementById('slaHigh').value),
+        normal_hours: Number(document.getElementById('slaNormal').value),
+        low_hours: Number(document.getElementById('slaLow').value)
+    };
+    try {
+        const response = await fetch('/customers/{{ customer.id }}/sla', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Unable to save SLA');
+        result.innerHTML = '<div class="alert alert-success py-2 mb-0">SLA saved. New tickets for this customer will use these targets.</div>';
+    } catch (error) {
+        result.innerHTML = `<div class="alert alert-danger py-2 mb-0">${error.message}</div>`;
+    }
     return false;
 }
 

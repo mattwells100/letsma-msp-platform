@@ -98,6 +98,14 @@ class Customer(Base):
     licensed_skus_billed = Column(String, nullable=True)      # comma-separated sku_part_number list, only used when mode == "selected"
     license_term_commitment = Column(String, default="monthly")
 
+    # Customer-specific first-response targets, in hours. NULL means use the
+    # platform defaults for that priority.
+    sla_plan = Column(String, nullable=True)
+    sla_critical_hours = Column(Integer, nullable=True)
+    sla_high_hours = Column(Integer, nullable=True)
+    sla_normal_hours = Column(Integer, nullable=True)
+    sla_low_hours = Column(Integer, nullable=True)
+
     contacts = relationship("Contact", back_populates="customer", cascade="all, delete-orphan")
     tickets = relationship("Ticket", back_populates="customer", cascade="all, delete-orphan")
     knowledge_articles = relationship("KnowledgeArticle", back_populates="customer", cascade="all, delete-orphan")

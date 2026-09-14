@@ -30,6 +30,13 @@ class BulkTicketDeleteRequest(BaseModel):
 SLA_HOURS = {"Critical": 2, "High": 4, "Normal": 8, "Low": 24}
 
 
+def sla_hours_for_customer(customer, priority: str) -> int:
+    if not customer:
+        return SLA_HOURS.get(priority, 8)
+    configured = getattr(customer, f"sla_{priority.lower()}_hours", None)
+    return configured or SLA_HOURS.get(priority, 8)
+
+
 @router.get("/", response_model=List[schemas.TicketOut])
 def list_tickets(
     status: Optional[str] = None,
@@ -68,6 +75,7 @@ def list_tickets(
 
 @router.post("/", response_model=schemas.TicketOut)
 def create_ticket(payload: schemas.TicketCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    customer = None
     if payload.customer_id:
         customer = db.query(models.Customer).get(payload.customer_id)
         if not customer:
@@ -85,7 +93,7 @@ def create_ticket(payload: schemas.TicketCreate, background_tasks: BackgroundTas
         priority=priority,
         source=data.get("source") or "Portal",
         external_ref=data.get("external_ref"),
-        sla_due_at=datetime.utcnow() + timedelta(hours=SLA_HOURS.get(priority, 8)),
+        sla_due_at=datetime.utcnow() + timedelta(hours=sla_hours_for_customer(customer, priority)),
     )
     db.add(ticket)
     db.commit()

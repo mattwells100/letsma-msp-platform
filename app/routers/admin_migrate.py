@@ -65,6 +65,21 @@ def migrate_license_term_schema(db: Session = Depends(get_db), _=Depends(_check_
     db.commit()
     return {"ok": True, "statements_applied": applied}
 
+
+@router.post("/migrate-customer-sla-schema")
+def migrate_customer_sla_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    statements = [
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS sla_plan VARCHAR",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS sla_critical_hours INTEGER",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS sla_high_hours INTEGER",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS sla_normal_hours INTEGER",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS sla_low_hours INTEGER",
+    ]
+    for stmt in statements:
+        db.execute(text(stmt))
+    db.commit()
+    return {"ok": True, "statements_applied": statements}
+
 @router.post("/migrate-billing-schema")
 def migrate_billing_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
     """Adds the purchasing/time-entry/licence-pricing billing engine

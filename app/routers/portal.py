@@ -24,6 +24,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -46,6 +47,14 @@ def ukdatetime(value, fmt="%d %b %Y %H:%M"):
     ).strftime(fmt)
 
 templates.env.filters["ukdatetime"] = ukdatetime
+
+
+class CustomerSLAUpdate(BaseModel):
+    plan: str = Field(default="", max_length=100)
+    critical_hours: int = Field(ge=1, le=720)
+    high_hours: int = Field(ge=1, le=720)
+    normal_hours: int = Field(ge=1, le=720)
+    low_hours: int = Field(ge=1, le=720)
 
 
 
@@ -138,7 +147,34 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
         "endpoints": endpoints, "license_summary": license_summary, "sorted_contacts": sorted_contacts,
         "timeline": timeline[:100], "customer_health": customer_health, "customer_insights": customer_insights,
         "knowledge_articles": knowledge_articles, "active_page": "customers",
+        "sla_defaults": {"critical": 2, "high": 4, "normal": 8, "low": 24},
     })
+
+
+@router.put("/customers/{customer_id}/sla")
+def update_customer_sla(
+    customer_id: str,
+    payload: CustomerSLAUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_login_page),
+):
+    customer = db.query(models.Customer).get(customer_id)
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    customer.sla_plan = payload.plan.strip() or None
+    customer.sla_critical_hours = payload.critical_hours
+    customer.sla_high_hours = payload.high_hours
+    customer.sla_normal_hours = payload.normal_hours
+    customer.sla_low_hours = payload.low_hours
+    db.commit()
+    return {
+        "ok": True,
+        "plan": customer.sla_plan,
+        "critical_hours": customer.sla_critical_hours,
+        "high_hours": customer.sla_high_hours,
+        "normal_hours": customer.sla_normal_hours,
+        "low_hours": customer.sla_low_hours,
+    }
 
 
 @router.get("/purchases")
