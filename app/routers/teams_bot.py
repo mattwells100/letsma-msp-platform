@@ -51,10 +51,13 @@ async def _reply_and_notify(
 ) -> dict:
     if notify:
         try:
-            await send_teams_reply(
-                db=db,
-                ticket=_conversation_ticket(conversation_id, service_url),
-                message=message,
+            await asyncio.wait_for(
+                send_teams_reply(
+                    db=db,
+                    ticket=_conversation_ticket(conversation_id, service_url),
+                    message=message,
+                ),
+                timeout=2,
             )
         except Exception as exc:
             print(f"TEAMS_REPLY_FAILED error={exc}")
