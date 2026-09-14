@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Header
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from datetime import datetime, UTC
@@ -26,6 +26,7 @@ from app.routers.ai_assist import (
     AI_TICKET_CATEGORIES,
 )
 from app.services import azure_openai_service
+from app.services.bot_framework_auth import validate_bot_framework_token
 import json
 import re
 
@@ -44,16 +45,49 @@ async def _reply_and_notify(
     conversation_id: str | None,
     service_url: str | None,
     message: str,
+    response: dict | None = None,
+    notify: bool = True,
 ) -> dict:
-    try:
-        await send_teams_reply(
-            db=db,
-            ticket=_conversation_ticket(conversation_id, service_url),
-            message=message,
-        )
-    except Exception as exc:
-        print(f"TEAMS_REPLY_FAILED error={exc}")
-    return _reply(message)
+    if notify:
+        try:
+            await send_teams_reply(
+                db=db,
+                ticket=_conversation_ticket(conversation_id, service_url),
+                message=message,
+            )
+        except Exception as exc:
+            print(f"TEAMS_REPLY_FAILED error={exc}")
+    return response or _reply(message)
+
+
+def _ticket_confirmation_card(draft) -> dict:
+    return {
+        "type": "message",
+        "text": "Ticket classification ready for confirmation.",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {"type": "TextBlock", "text": "I think this is:", "weight": "Bolder", "size": "Medium"},
+                        {"type": "FactSet", "facts": [
+                            {"title": "Issue", "value": draft.subject or "Support request"},
+                            {"title": "Category", "value": draft.category or "General Support"},
+                            {"title": "Subcategory", "value": draft.subcategory or "Incident"},
+                            {"title": "Priority", "value": draft.priority or "Normal"},
+                        ]},
+                    ],
+                    "actions": [
+                        {"type": "Action.Submit", "title": "Create ticket", "data": {"action": "confirm_ticket"}},
+                        {"type": "Action.Submit", "title": "Cancel", "data": {"action": "cancel_ticket"}},
+                    ],
+                },
+            }
+        ],
+    }
 
 
 async def _classify_draft(draft) -> None:
@@ -115,7 +149,12 @@ async def _create_and_confirm_ticket(
             "Create ticket? Reply 'yes' to create it, or send a new issue."
         )
         return await _reply_and_notify(
-            db, conversation_id, service_url, preview
+            db,
+            conversation_id,
+            service_url,
+            preview,
+            response=_ticket_confirmation_card(draft),
+                notify=False,
         )
 
     result = create_ticket(
@@ -201,13 +240,26 @@ def _conversation_ticket(
 async def receive_message(
     request: Request,
     db: Session = Depends(get_db),
+    authorization: str = Header(default=""),
 ):
     payload = await request.json()
+
+    # Bot Framework activities are authenticated by Azure Bot Service. Keep
+    # the legacy unauthenticated route available only for local/custom callers
+    # when the Bot Framework app ID has not been configured.
+    if payload.get("channelId") == "msteams":
+        await validate_bot_framework_token(authorization)
 
     if payload.get("type") != "message":
         return _reply("")
 
+    activity_value = payload.get("value") or {}
+    action = activity_value.get("action") if isinstance(activity_value, dict) else None
     text = (payload.get("text") or "").strip()
+    if action == "confirm_ticket":
+        text = "yes"
+    elif action == "cancel_ticket":
+        text = "cancel"
 
     sender = (payload.get("from") or {}).get("name") or "Teams user"
     sender_email = _sender_email(payload)
@@ -691,7 +743,6 @@ async def receive_message(
             sender_email=sender_email,
             service_url=service_url,
             conversation_id=conversation_id,
-            confirmed=True,
         )
 
     if draft.state == TicketDraftState.COLLECTING_CUSTOMER:
@@ -715,6 +766,14 @@ async def receive_message(
         )
 
     if draft.state == TicketDraftState.AWAITING_CONFIRMATION:
+        if text.casefold() in {"cancel", "cancel_ticket", "no"}:
+            draft.reset()
+            return await _reply_and_notify(
+                db,
+                conversation_id,
+                service_url,
+                "Ticket creation cancelled.",
+            )
         if text.casefold() not in {"confirm", "yes", "create"}:
             # Do not leave a conversation stuck behind an abandoned draft.
             # A new issue message is a valid request for a fresh ticket.

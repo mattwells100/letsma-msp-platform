@@ -73,13 +73,16 @@
    background task sends a WhatsApp reply to the customer automatically.
 
 ### 3.2 Teams → Ticket
-1. A technician (or client, if invited to the channel) @mentions the bot:
-   `@Letsma Bot New ticket: printer down at Reception for The Officers Mess`.
-2. Teams calls the configured Outgoing Webhook, `POST /webhooks/teams`, with
-   an HMAC signature validated against `TEAMS_OUTGOING_WEBHOOK_SECRET`.
-3. `teams_service.parse_inbound_activity()` extracts the customer name after
-   "for", matches it to a `Customer`, creates the ticket, and replies
-   synchronously in the channel confirming the ticket number.
+1. A customer opens a 1:1 chat with the registered Letsma bot and sends a
+   message such as `My Outlook keeps crashing`.
+2. Azure Bot Service forwards the Bot Framework activity to
+   `POST /api/teams/messages` with a bearer token. The app validates the token
+   against the Bot Framework signing keys and `TEAMS_BOT_APP_ID`.
+3. The existing conversation workflow identifies the sender, classifies the
+   issue, presents an Adaptive Card confirmation, and creates the ticket after
+   the customer selects **Create ticket**.
+4. The legacy `POST /webhooks/teams` Outgoing Webhook remains available for
+   channel-only deployments.
 
 ### 3.3 Ticket created → Teams notification (outbound)
 - Any ticket creation (regardless of source) fires a background task that

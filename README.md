@@ -98,9 +98,13 @@ isn't empty on first run.
   and a ticket is created and routed to the matching customer automatically.
 
   > For a full interactive bot (buttons, adaptive card forms, proactive 1:1
-  > messages) migrate `app/services/teams_service.py` to the **Bot Framework
-  > SDK** registered via **Azure Bot Service** - the webhook approach here is
-  > intentionally dependency-light for a fast MVP.
+   > messages), register an Azure Bot Service bot and configure its messaging
+   > endpoint as `https://{BASE_URL}/api/teams/messages`. Bot Framework
+   > activities with `channelId: "msteams"` are authenticated with the bearer
+   > token issued for `TEAMS_BOT_APP_ID`; the existing conversational ticket
+   > workflow handles the message text and returns a synchronous Bot Framework
+   > message response. The legacy `/webhooks/teams` Outgoing Webhook remains
+   > available for channel-only deployments.
 
 ### 3.5 Endpoint monitoring agent
 ```bash
