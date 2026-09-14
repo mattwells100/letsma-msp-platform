@@ -15,7 +15,7 @@ from sqlalchemy import inspect, text
 
 from app.database import Base, engine
 from app.config import settings
-from app.deps import require_login_json
+from app.deps import require_login_json, require_manager_or_admin
 from app.routers import customers, tickets, billing, licenses, endpoints
 from app.routers import webhooks_whatsapp, webhooks_teams, auth_xero, portal
 from app.routers import admin_migrate, contacts_sync
@@ -111,11 +111,11 @@ app.include_router(admin_technicians.router)
 
 # Amazon CSV import + general purchasing module + helpdesk labour time entries
 app.include_router(amazon.router, dependencies=[Depends(require_login_json)])
-app.include_router(purchases.router, dependencies=[Depends(require_login_json)])
+app.include_router(purchases.router, dependencies=[Depends(require_manager_or_admin)])
 app.include_router(time_entries.router, dependencies=[Depends(require_login_json)])
 
 # Per-customer billing configuration + license pricing + profitability reporting
-app.include_router(billing_config.router, dependencies=[Depends(require_login_json)])
+app.include_router(billing_config.router, dependencies=[Depends(require_manager_or_admin)])
 
 # Email-to-ticket ingestion (helpdesk@letsma.co.uk) - session-gated (the
 # excluded-senders/auto-reply-rules management is sensitive). The
@@ -143,7 +143,7 @@ app.include_router(portal.router)
 app.include_router(ai_assist.router, dependencies=[Depends(require_login_json)])
 app.include_router(purchasing_email_ingestion.router, dependencies=[Depends(require_login_json)])
 app.include_router(purchasing_email_admin.router)
-app.include_router(recurring_billing.router)
+app.include_router(recurring_billing.router, dependencies=[Depends(require_manager_or_admin)])
 
 @app.on_event("startup")
 async def _on_startup():

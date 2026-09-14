@@ -31,7 +31,7 @@ from sqlalchemy import func
 
 from app.database import get_db
 from app import models
-from app.deps import require_login_page
+from app.deps import require_login_page, require_manager_or_admin
 from app.services.knowledge_base_service import list_customer_knowledge_articles
 
 router = APIRouter(tags=["Portal"])
@@ -178,7 +178,7 @@ def update_customer_sla(
 
 
 @router.get("/purchases")
-def purchases_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
+def purchases_page(request: Request, db: Session = Depends(get_db), _=Depends(require_manager_or_admin)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
 
     needs_review_orders = (
@@ -319,7 +319,7 @@ def ticket_attachment(
 
 
 @router.get("/billing")
-def billing_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
+def billing_page(request: Request, db: Session = Depends(get_db), _=Depends(require_manager_or_admin)):
     invoices = db.query(models.Invoice).order_by(models.Invoice.created_at.desc()).all()
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     return templates.TemplateResponse("billing.html", {"request": request, "invoices": invoices, "customers": customers, "active_page": "billing"})
@@ -329,7 +329,7 @@ def customer_recurring_billing(
     customer_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    _=Depends(require_login_page),
+    _=Depends(require_manager_or_admin),
 ):
     customer = db.query(models.Customer).get(customer_id)
     if not customer:
@@ -352,7 +352,7 @@ def customer_recurring_billing(
         },
     )
 @router.get("/billing-settings")
-def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
+def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Depends(require_manager_or_admin)):
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     license_prices = db.query(models.LicensePrice).all()
 
@@ -439,7 +439,7 @@ def customer_portal(customer_id: str, request: Request, db: Session = Depends(ge
 
 
 @router.get("/recurring-catalog")
-def recurring_catalog_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
+def recurring_catalog_page(request: Request, db: Session = Depends(get_db), _=Depends(require_manager_or_admin)):
     items = (
         db.query(models.RecurringBillingCatalogItem)
         .order_by(models.RecurringBillingCatalogItem.name)

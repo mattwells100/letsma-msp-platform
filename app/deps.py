@@ -49,3 +49,19 @@ def require_login_page(request: Request):
         # or raise, not directly return a Response).
         raise HTTPException(status_code=303, headers={"Location": "/auth/login"})
     return user
+
+
+def require_manager_or_admin(request: Request):
+    """Allow authenticated managers/admins to use financial configuration APIs."""
+    user = require_login_json(request)
+    if user.get("role") not in {"Manager", "Admin"}:
+        raise HTTPException(status_code=403, detail="Manager or Admin role required.")
+    return user
+
+
+def require_admin_page(request: Request):
+    """Protect staff administration pages while preserving login redirects."""
+    user = require_login_page(request)
+    if user.get("role") != "Admin":
+        raise HTTPException(status_code=403, detail="Admin role required.")
+    return user
