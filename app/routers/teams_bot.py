@@ -145,6 +145,8 @@ async def _create_and_confirm_ticket(
     confirmed: bool = False,
 ) -> dict:
     if confirmed:
+        if not draft.classification_confidence:
+            await _classify_draft(draft)
         print(
             f"TEAMS_TICKET_CONFIRM ticket_subject={draft.subject!r} "
             f"description_present={bool(draft.description)}"
