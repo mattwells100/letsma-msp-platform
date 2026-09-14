@@ -153,7 +153,7 @@ async def _create_and_confirm_ticket(
             conversation_id,
             service_url,
             preview,
-            response=_ticket_confirmation_card(draft),
+            response=_reply(preview),
                 notify=False,
         )
 
