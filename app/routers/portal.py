@@ -278,14 +278,12 @@ def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Dep
     customers = db.query(models.Customer).order_by(models.Customer.name).all()
     license_prices = db.query(models.LicensePrice).all()
 
-    priced_skus = {p.sku_part_number for p in license_prices}
-    assigned_skus = {
-        row[0] for row in db.query(models.LicenseAssignment.sku_part_number).distinct().all()
-    }
-    
     all_assignments = db.query(LicenseAssignment).all()
 
     sku_lookup = {}
+
+    for price in license_prices:
+        sku_lookup[price.sku_part_number] = price.sku_part_number
 
     for a in all_assignments:
         sku_lookup[a.sku_part_number] = (

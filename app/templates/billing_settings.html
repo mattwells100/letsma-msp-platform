@@ -2,7 +2,7 @@
 {% block title %}Billing Settings - Letsma MSP{% endblock %}
 {% block content %}
 <h2 class="page-title mb-1">Billing Settings</h2>
-<div class="text-muted mb-4">Configure how each customer is billed, set Microsoft 365 licence prices, and review profitability.</div>
+<div class="text-muted mb-4">Configure customer billing, choose which Microsoft 365 licences are billed, set prices, and review profitability.</div>
 
 <div id="settingsAlert" class="mb-3"></div>
 
@@ -18,7 +18,7 @@
                         <th>Billing Type</th>
                         <th>Rate / Fee</th>
                         <th>Purchase Markup %</th>
-                        <th>Licence Billing</th>
+                        <th style="min-width:220px">Licence Billing</th>
                         <th>Licence Term</th>
                         <th></th>
                     </tr>
@@ -54,10 +54,13 @@
                                 <option value="all" {% if c.license_billing_mode == 'all' %}selected{% endif %}>All licences</option>
                                 <option value="selected" {% if c.license_billing_mode == 'selected' %}selected{% endif %}>Selected SKUs</option>
                             </select>
-                            <input type="text" class="form-control form-control-sm mt-1 selected-skus-input"
-                                   placeholder="e.g. SPB,EXCHANGESTANDARD"
-                                   value="{{ c.licensed_skus_billed or '' }}"
-                                   style="{% if c.license_billing_mode != 'selected' %}display:none;{% endif %}">
+                            <div class="selected-skus-picker mt-2" style="{% if c.license_billing_mode != 'selected' %}display:none;{% endif %}">
+                                <button type="button" class="btn btn-sm btn-outline-primary choose-skus-btn w-100">
+                                    <i class="bi bi-list-check me-1"></i><span class="choose-skus-label">Choose SKUs</span>
+                                </button>
+                                <div class="selected-skus-summary small text-muted mt-1"></div>
+                            </div>
+                            <input type="hidden" class="selected-skus-input" value="{{ c.licensed_skus_billed or '' }}">
                         </td>
                         <td>
                             <select class="form-select form-select-sm license-term-select">
@@ -78,37 +81,6 @@
             </div>
         </div>
 
-        <div class="card stat-card p-3 mb-4">
-            <h5 class="page-title">Purchasing</h5>
-            <p class="small text-muted">Log an order from any supplier (Amazon, CDW, Ingram Micro, a local shop, etc.). It will be billed with the customer's purchase markup on their next monthly invoice.</p>
-            <form class="row g-2" onsubmit="return createPurchase(event)">
-                <div class="col-md-3">
-                    <label class="form-label small">Supplier</label>
-                    <input type="text" class="form-control form-control-sm" id="purchaseSupplier" placeholder="e.g. CDW" required>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label small">Description</label>
-                    <input type="text" class="form-control form-control-sm" id="purchaseDescription" placeholder="e.g. 3x wireless keyboards" required>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small">Cost (£)</label>
-                    <input type="number" step="0.01" class="form-control form-control-sm" id="purchaseTotal" required>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small">Customer</label>
-                    <select class="form-select form-select-sm" id="purchaseCustomer">
-                        <option value="">-- Assign later --</option>
-                        {% for c in customers %}
-                            <option value="{{ c.id }}">{{ c.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-12">
-                    <button type="submit" class="btn btn-sm text-white" style="background-color:#0b2545">Log Purchase</button>
-                </div>
-            </form>
-            <div id="purchaseResult" class="mt-2 small"></div>
-        </div>
     </div>
 
     <div class="col-lg-5">
@@ -229,7 +201,106 @@
     </div>
 </div>
 
+<div class="modal fade" id="skuPickerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title mb-1">Choose billed licences</h5>
+                    <div class="small text-muted" id="skuPickerCustomer"></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="search" class="form-control mb-3" id="skuSearch" placeholder="Search SKU or licence name">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small text-muted" id="skuPickerCount">0 selected</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clearSkusBtn">Clear selection</button>
+                </div>
+                <div class="border rounded" id="skuOptions"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="applySkusBtn">Apply selection</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+const knownSkus = {{ known_skus|tojson }};
+let activeSkuRow = null;
+let skuPickerModal = null;
+let activeSkuSelection = new Set();
+
+function selectedSkuValues(row) {
+    return (row.querySelector('.selected-skus-input').value || '')
+        .split(',').map(value => value.trim()).filter(Boolean);
+}
+
+function renderSkuOptions(selected, filter = '') {
+    const normalizedFilter = filter.toLowerCase();
+    const options = knownSkus.filter(([code, name]) =>
+        !normalizedFilter || `${code} ${name}`.toLowerCase().includes(normalizedFilter)
+    );
+    const container = document.getElementById('skuOptions');
+    container.innerHTML = options.length ? options.map(([code, name]) => `
+        <label class="d-flex align-items-start gap-2 px-3 py-2 border-bottom">
+            <input class="form-check-input mt-1 sku-option" type="checkbox" value="${code}" ${selected.includes(code) ? 'checked' : ''}>
+            <span><strong>${name}</strong><span class="d-block small text-muted">${code}</span></span>
+        </label>`).join('') : '<div class="p-3 text-muted">No matching SKUs found.</div>';
+    document.getElementById('skuPickerCount').textContent = `${activeSkuSelection.size} selected`;
+}
+
+function refreshSkuRow(row) {
+    const values = selectedSkuValues(row);
+    const summary = row.querySelector('.selected-skus-summary');
+    const label = row.querySelector('.choose-skus-label');
+    label.textContent = values.length ? `Choose SKUs (${values.length})` : 'Choose SKUs';
+    const names = values.map(code => {
+        const match = knownSkus.find(([sku]) => sku === code);
+        return match ? match[1] : code;
+    });
+    summary.textContent = names.length ? names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2} more` : '') : 'No SKUs selected';
+}
+
+document.querySelectorAll('.selected-skus-picker').forEach(picker => {
+    const row = picker.closest('tr');
+    refreshSkuRow(row);
+    picker.querySelector('.choose-skus-btn').addEventListener('click', () => {
+        activeSkuRow = row;
+        document.getElementById('skuPickerCustomer').textContent = row.querySelector('td').textContent.trim();
+        activeSkuSelection = new Set(selectedSkuValues(row));
+        document.getElementById('skuSearch').value = '';
+        renderSkuOptions(Array.from(activeSkuSelection));
+        if (!skuPickerModal) skuPickerModal = new bootstrap.Modal(document.getElementById('skuPickerModal'));
+        skuPickerModal.show();
+    });
+});
+
+document.getElementById('skuSearch').addEventListener('input', e => {
+    renderSkuOptions(Array.from(activeSkuSelection), e.target.value);
+});
+
+document.getElementById('skuOptions').addEventListener('change', e => {
+    if (!e.target.classList.contains('sku-option')) return;
+    if (e.target.checked) activeSkuSelection.add(e.target.value);
+    else activeSkuSelection.delete(e.target.value);
+    document.getElementById('skuPickerCount').textContent = `${activeSkuSelection.size} selected`;
+});
+
+document.getElementById('clearSkusBtn').addEventListener('click', () => {
+    activeSkuSelection.clear();
+    renderSkuOptions([], document.getElementById('skuSearch').value);
+});
+document.getElementById('applySkusBtn').addEventListener('click', () => {
+    if (!activeSkuRow) return;
+    const values = Array.from(activeSkuSelection);
+    activeSkuRow.querySelector('.selected-skus-input').value = values.join(',');
+    refreshSkuRow(activeSkuRow);
+    skuPickerModal.hide();
+});
+
 function showAlert(message, type) {
     const alertDiv = document.getElementById('settingsAlert');
     alertDiv.innerHTML = `<div class="alert alert-${type} py-2 mb-0">${message}</div>`;
@@ -240,7 +311,7 @@ document.querySelectorAll('.license-mode-select').forEach(select => {
     select.addEventListener('change', (e) => {
         const row = e.target.closest('tr');
         const skusInput = row.querySelector('.selected-skus-input');
-        skusInput.style.display = (e.target.value === 'selected') ? '' : 'none';
+        row.querySelector('.selected-skus-picker').style.display = (e.target.value === 'selected') ? '' : 'none';
     });
 });
 
@@ -293,37 +364,6 @@ document.querySelectorAll('.save-customer-btn').forEach(btn => {
         }
     });
 });
-
-async function createPurchase(e) {
-    e.preventDefault();
-    const supplier = document.getElementById('purchaseSupplier').value.trim();
-    const description = document.getElementById('purchaseDescription').value.trim();
-    const total = parseFloat(document.getElementById('purchaseTotal').value);
-    const customerId = document.getElementById('purchaseCustomer').value || null;
-    const resultDiv = document.getElementById('purchaseResult');
-
-    const payload = {supplier, description, total};
-    if (customerId) payload.customer_id = customerId;
-
-    try {
-        const resp = await fetch('/api/purchases/', {
-            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
-        });
-        const data = await resp.json();
-        if (resp.ok) {
-            const assignedMsg = data.assigned ? 'and assigned to the selected customer' : '- remember to assign it to a customer before the next billing run';
-            resultDiv.innerHTML = `<div class="alert alert-success py-2 mb-0">Logged purchase from <strong>${data.supplier}</strong> ${assignedMsg}.</div>`;
-            document.getElementById('purchaseSupplier').value = '';
-            document.getElementById('purchaseDescription').value = '';
-            document.getElementById('purchaseTotal').value = '';
-        } else {
-            resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">Failed: ${data.detail || JSON.stringify(data)}</div>`;
-        }
-    } catch (err) {
-        resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">Failed: ${err}</div>`;
-    }
-    return false;
-}
 
 function updatePriceLabels() {
     const term = document.getElementById('newPriceTerm').value;
