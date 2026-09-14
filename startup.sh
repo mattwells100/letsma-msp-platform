@@ -9,7 +9,7 @@
 # requirements.txt automatically on deploy, so no pip install is needed here.
 
 gunicorn app.main:app \
-    --workers 2 \
+    --workers 1 \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind 0.0.0.0:8000 \
     --timeout 120 \
