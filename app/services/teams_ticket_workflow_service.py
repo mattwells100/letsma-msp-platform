@@ -210,6 +210,10 @@ def create_ticket(
     service_url: str | None = None,
 ) -> TicketCreationResult:
     """Create the persisted ticket represented by a completed Teams draft."""
+    print(
+        f"TEAMS_CREATE_START subject={draft.subject!r} "
+        f"conversation={draft.conversation_id!r}"
+    )
     if not draft.can_confirm():
         raise ValueError("Teams ticket draft is missing required fields")
 
@@ -222,8 +226,10 @@ def create_ticket(
         TicketPriority.NORMAL,
     )
 
+    ticket_number = next_ticket_number(db)
+    print(f"TEAMS_CREATE_NUMBER ticket_number={ticket_number}")
     ticket = Ticket(
-        ticket_number=next_ticket_number(db),
+        ticket_number=ticket_number,
         customer_id=draft.customer_id,
         contact_id=draft.contact_id,
         subject=draft.subject,
@@ -241,6 +247,7 @@ def create_ticket(
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
+    print(f"TEAMS_CREATE_COMMITTED ticket_number={ticket.ticket_number}")
 
     draft.created_ticket_id = ticket.id
     draft.created_ticket_number = str(ticket.ticket_number)
