@@ -802,14 +802,27 @@ async def receive_message(
 
     if draft.state == TicketDraftState.COLLECTING_ISSUE:
         result = collect_issue(draft, text)
-        return _reply(result.message)
+        if result.status != "collected":
+            return _reply(result.message)
+        _match_teams_sender(db, draft, payload, text)
+        return await _create_and_confirm_ticket(
+            db,
+            draft,
+            sender=sender,
+            sender_email=sender_email,
+            service_url=service_url,
+            conversation_id=conversation_id,
+        )
 
     if draft.state == TicketDraftState.CLASSIFYING:
         await _classify_draft(draft)
         draft.state = TicketDraftState.AWAITING_CONFIRMATION
         teams_ticket_state_service.save(draft)
-        return _reply(
-            f"I have the issue as '{draft.subject}'. Reply 'confirm' to create the ticket."
+        return await _reply_and_notify(
+            db,
+            conversation_id,
+            service_url,
+            f"I have the issue as '{draft.subject}'. Reply 'confirm' to create the ticket.",
         )
 
     if draft.state == TicketDraftState.AWAITING_CONFIRMATION:
