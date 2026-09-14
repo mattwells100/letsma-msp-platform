@@ -31,6 +31,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app import models
 from app.deps import require_login_page
+from app.services.knowledge_base_service import list_customer_knowledge_articles
 
 router = APIRouter(tags=["Portal"])
 templates = Jinja2Templates(directory="app/templates")
@@ -131,9 +132,7 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
     warning_endpoints = [endpoint for endpoint in endpoints if str(getattr(endpoint.status, "value", endpoint.status)) != "Online"]
     customer_health = {"support": max(0, 100 - len(open_tickets) * 10), "devices": max(0, 100 - len(warning_endpoints) * 20), "overall": max(0, min(100, 100 - len(open_tickets) * 5 - len(warning_endpoints) * 10))}
     customer_insights = {"current_issues": [f"{len(open_tickets)} open ticket(s)"] if open_tickets else ["No open tickets"], "trending_problems": trending_problems or ["Not enough ticket history yet"], "recommended_actions": ["Review unresolved tickets" if open_tickets else "Schedule a service review", "Investigate offline or warning endpoints" if warning_endpoints else "Continue endpoint monitoring"]}
-    knowledge_articles = list(models.KnowledgeArticle.filter_by(customer_id=customer_id).order_by(models.KnowledgeArticle.updated_at.desc()).limit(5).all()) if hasattr(models.KnowledgeArticle, "filter_by") else []
-    if not knowledge_articles:
-        knowledge_articles = []
+    knowledge_articles = list_customer_knowledge_articles(db, customer_id, limit=5)
     return templates.TemplateResponse("customer_detail.html", {
         "request": request, "customer": customer, "tickets": tickets, "invoices": invoices,
         "endpoints": endpoints, "license_summary": license_summary, "sorted_contacts": sorted_contacts,

@@ -23,7 +23,7 @@ from app.routers.teams_bot import _match_teams_sender
 
 class FakeQuery:
     def __init__(self, items):
-        self.items = items
+        self.items = list(items)
 
     def filter_by(self, **kwargs):
         matches = []
@@ -37,8 +37,17 @@ class FakeQuery:
                 matches.append(item)
         return FakeQuery(matches)
 
+    def order_by(self, *args, **kwargs):
+        return FakeQuery(sorted(self.items, key=lambda item: getattr(item, "updated_at", None) or object(), reverse=True))
+
+    def limit(self, value):
+        return FakeQuery(self.items[:value])
+
     def first(self):
         return self.items[0] if self.items else None
+
+    def all(self):
+        return list(self.items)
 
 
 class FakeSession:
