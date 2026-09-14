@@ -6,6 +6,9 @@ class TeamsIntent(str, Enum):
     NEW_TICKET = "NEW_TICKET"
     SHOW_TICKETS = "SHOW_TICKETS"
     GET_STATUS = "GET_STATUS"
+    UPDATE_TICKET = "UPDATE_TICKET"
+    CLOSE_TICKET = "CLOSE_TICKET"
+    ADD_NOTE = "ADD_NOTE"
     HELP = "HELP"
     WHEN_CLOSED = "WHEN_CLOSED"
     WHO_ASSIGNED = "WHO_ASSIGNED"
@@ -17,6 +20,12 @@ _STATUS_PATTERNS = [
     r"ticket\s+#?(\d+)",
     r"what.?s\s+happening\s+with\s+(?:ticket\s+)?#?(\d+)",
 ]
+
+_TICKET_ACTION_PATTERNS = {
+    TeamsIntent.UPDATE_TICKET: r"\bupdate\s+ticket\s+#?(\d+)\b(?:\s*[:\-]?\s*(.*))?$",
+    TeamsIntent.CLOSE_TICKET: r"\bclose\s+ticket\s+#?(\d+)\b",
+    TeamsIntent.ADD_NOTE: r"\badd\s+note\s+(?:to\s+)?ticket\s+#?(\d+)\b(?:\s*[:\-]?\s*(.*))?$",
+}
 
 
 _SHOW_TICKET_PHRASES = [
@@ -89,6 +98,14 @@ def detect_intent(text: str):
     for phrase in _HELP_PHRASES:
         if text_lower == phrase:
             return TeamsIntent.HELP, {}
+
+    for intent, pattern in _TICKET_ACTION_PATTERNS.items():
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            result = {"ticket_number": int(match.group(1))}
+            if intent in (TeamsIntent.ADD_NOTE, TeamsIntent.UPDATE_TICKET):
+                result["note"] = (match.group(2) or "").strip()
+            return intent, result
 
     for pattern in _STATUS_PATTERNS:
         match = re.search(pattern, text_lower)

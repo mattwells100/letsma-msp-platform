@@ -345,11 +345,10 @@ def _find_ticket_by_conversation(db: Session, conversation_id: str):
 def _add_reply_comment(db: Session, ticket: Ticket, author_name: str, message_body: str):
     """
     Adds the incoming email as a comment on an existing ticket (rather
-    than creating a duplicate ticket). If the ticket had been marked
-    Resolved/Closed, reopens it to "In Progress" - a customer replying
-    implies the issue isn't actually resolved for them. If it was
-    "Waiting on Customer", also moves it to "In Progress" since they've
-    now responded. Does NOT commit - the caller is responsible for that.
+    than creating a duplicate ticket). If the ticket is waiting on the
+    customer, move it to "In Progress" since they've now responded.
+    Resolved and closed tickets are excluded before this function is called.
+    Does NOT commit - the caller is responsible for that.
     """
     comment = TicketComment(
         ticket_id=ticket.id,
@@ -360,10 +359,7 @@ def _add_reply_comment(db: Session, ticket: Ticket, author_name: str, message_bo
     db.add(comment)
 
     current_status = ticket.status.value if hasattr(ticket.status, "value") else ticket.status
-    if current_status in ("Resolved", "Closed"):
-        ticket.status = "In Progress"
-        ticket.resolved_at = None
-    elif current_status == "Waiting on Customer":
+    if current_status == "Waiting on Customer":
         ticket.status = "In Progress"
 
     ticket.updated_at = datetime.utcnow()
@@ -550,6 +546,10 @@ async def process_single_email(
     # continuation of an existing ticket's thread, we add it as a comment
     # and stop here entirely (no new ticket, no re-matching of customer).
     existing_ticket = _find_ticket_by_conversation(db, conversation_id)
+    if existing_ticket:
+        existing_status = getattr(existing_ticket.status, "value", existing_ticket.status)
+        if existing_status in ("Resolved", "Closed"):
+            existing_ticket = None
     if existing_ticket:
         _add_reply_comment(db, existing_ticket, effective_name, effective_body)
         db.add(ProcessedEmail(

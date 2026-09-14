@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Request, Depends
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
+from datetime import datetime, UTC
 
 from app.database import get_db
-from app.models import Ticket, TicketComment, TicketPriority
+from app.models import Ticket, TicketComment, TicketStatus
 from app.services.teams_reply_service import send_teams_reply
 from app.services.teams_intent_service import detect_intent, TeamsIntent
 from app.services.teams_conversation_memory import (
@@ -35,6 +37,23 @@ router = APIRouter(
 
 def _reply(text: str) -> dict:
     return {"type": "message", "text": text}
+
+
+async def _reply_and_notify(
+    db,
+    conversation_id: str | None,
+    service_url: str | None,
+    message: str,
+) -> dict:
+    try:
+        await send_teams_reply(
+            db=db,
+            ticket=_conversation_ticket(conversation_id, service_url),
+            message=message,
+        )
+    except Exception as exc:
+        print(f"TEAMS_REPLY_FAILED error={exc}")
+    return _reply(message)
 
 
 async def _classify_draft(draft) -> None:
@@ -82,7 +101,23 @@ async def _create_and_confirm_ticket(
     sender_email: str | None,
     service_url: str | None,
     conversation_id: str | None,
+    confirmed: bool = False,
 ) -> dict:
+    await _classify_draft(draft)
+    if not confirmed:
+        draft.state = TicketDraftState.AWAITING_CONFIRMATION
+        teams_ticket_state_service.save(draft)
+        preview = (
+            "I think this is:\n\n"
+            f"Category: {draft.category or 'General Support'}\n"
+            f"Subcategory: {draft.subcategory or 'Incident'}\n"
+            f"Priority: {draft.priority}\n\n"
+            "Create ticket? Reply 'yes' to create it, or send a new issue."
+        )
+        return await _reply_and_notify(
+            db, conversation_id, service_url, preview
+        )
+
     result = create_ticket(
         db,
         draft,
@@ -90,31 +125,7 @@ async def _create_and_confirm_ticket(
         reporter_email=sender_email,
         service_url=service_url,
     )
-    # Persist first so an unavailable or slow AI service cannot prevent the
-    # Teams message from becoming a ticket.
-    await _classify_draft(draft)
-    result.ticket.category = draft.category
-    result.ticket.subcategory = draft.subcategory
-    result.ticket.priority = next(
-        (
-            item
-            for item in TicketPriority
-            if item.value.casefold() == draft.priority.casefold()
-        ),
-        TicketPriority.NORMAL,
-    )
-    result.ticket.estimated_minutes = draft.estimated_minutes
-    db.add(result.ticket)
-    db.commit()
-    db.refresh(result.ticket)
-    confirmation_message = (
-        f"Ticket #{result.ticket.ticket_number} created.\n\n"
-        f"Issue: {result.ticket.subject}\n"
-        f"Status: {result.ticket.status.value}\n"
-        f"Category: {result.ticket.category or 'Pending'}\n"
-        f"Subcategory: {result.ticket.subcategory or 'Pending'}\n"
-        f"Priority: {result.ticket.priority.value if hasattr(result.ticket.priority, 'value') else result.ticket.priority}"
-    )
+    confirmation_message = result.message
     remember_ticket_number(
         db=db,
         conversation_id=conversation_id,
@@ -235,16 +246,43 @@ async def receive_message(
     if intent == TeamsIntent.SHOW_TICKETS:
         print("[TEAMS_INTENT] SHOW_TICKETS_TRIGGERED")
 
-        tickets = (
-            db.query(Ticket)
-            .filter(
-                Ticket.conversation_id == conversation_id,
-                Ticket.deleted_at.is_(None),
-            )
-            .order_by(Ticket.updated_at.desc())
-            .limit(10)
-            .all()
+        sender_data = payload.get("from") or {}
+        email_data = sender_data.get("emailAddress") or {}
+        sender_email_for_lookup = (
+            sender_data.get("email")
+            or sender_data.get("userPrincipalName")
+            or email_data.get("address")
         )
+        sender_match = resolve_teams_sender(
+            db,
+            sender_name=sender_data.get("name"),
+            sender_email=sender_email_for_lookup,
+            aad_object_id=sender_data.get("aadObjectId"),
+        )
+        identity_filters = []
+        if conversation_id:
+            identity_filters.append(Ticket.conversation_id == conversation_id)
+        if sender_match:
+            contact, customer = sender_match
+            identity_filters.extend(
+                [
+                    Ticket.contact_id == contact.id,
+                    Ticket.customer_id == (customer.id if customer else contact.customer_id),
+                ]
+            )
+
+        tickets = []
+        if identity_filters:
+            tickets = (
+                db.query(Ticket)
+                .filter(
+                    or_(*identity_filters),
+                    Ticket.deleted_at.is_(None),
+                )
+                .order_by(Ticket.updated_at.desc())
+                .limit(10)
+                .all()
+            )
 
         if not tickets:
             return _reply(
@@ -385,6 +423,81 @@ async def receive_message(
         )
 
         return {}
+
+    if intent in (
+        TeamsIntent.UPDATE_TICKET,
+        TeamsIntent.CLOSE_TICKET,
+        TeamsIntent.ADD_NOTE,
+    ):
+        ticket_number = meta["ticket_number"]
+        ticket = (
+            db.query(Ticket)
+            .filter(
+                Ticket.ticket_number == ticket_number,
+                Ticket.conversation_id == conversation_id,
+                Ticket.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if not ticket:
+            return _reply(f"I could not find ticket #{ticket_number} in this Teams conversation.")
+
+        if intent == TeamsIntent.CLOSE_TICKET:
+            ticket_status = getattr(ticket.status, "value", ticket.status)
+            if ticket_status in (TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value):
+                return await _reply_and_notify(
+                    db,
+                    conversation_id,
+                    service_url,
+                    f"Ticket #{ticket_number} is already {str(ticket_status).lower()}.",
+                )
+            ticket.status = TicketStatus.CLOSED
+            ticket.resolved_at = datetime.now(UTC)
+            db.commit()
+            remember_ticket_number(db=db, conversation_id=conversation_id, ticket_number=ticket_number)
+            return await _reply_and_notify(
+                db,
+                conversation_id,
+                service_url,
+                f"Ticket #{ticket_number} is now closed.",
+            )
+
+        ticket_status = getattr(ticket.status, "value", ticket.status)
+        if ticket_status in (TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value):
+            return await _reply_and_notify(
+                db,
+                conversation_id,
+                service_url,
+                f"Ticket #{ticket_number} is {str(ticket_status).lower()} and cannot be updated. Reopen it first.",
+            )
+
+        note = meta.get("note", "")
+        if not note:
+            action = "update" if intent == TeamsIntent.UPDATE_TICKET else "add a note"
+            return await _reply_and_notify(
+                db,
+                conversation_id,
+                service_url,
+                f"What would you like to {action} on ticket #{ticket_number}?",
+            )
+
+        db.add(
+            TicketComment(
+                ticket_id=ticket.id,
+                author=sender,
+                message=note,
+                is_internal_note=False,
+            )
+        )
+        db.commit()
+        remember_ticket_number(db=db, conversation_id=conversation_id, ticket_number=ticket_number)
+        verb = "Updated" if intent == TeamsIntent.UPDATE_TICKET else "Added note to"
+        return await _reply_and_notify(
+            db,
+            conversation_id,
+            service_url,
+            f"{verb} ticket #{ticket_number}.",
+        )
 
     # MEMORY_FOLLOW_UP_HANDLERS
     if intent in (
@@ -578,6 +691,7 @@ async def receive_message(
             sender_email=sender_email,
             service_url=service_url,
             conversation_id=conversation_id,
+            confirmed=True,
         )
 
     if draft.state == TicketDraftState.COLLECTING_CUSTOMER:
@@ -629,6 +743,14 @@ async def receive_message(
     if draft.state == TicketDraftState.COMPLETED and draft.created_ticket_id:
         ticket = db.query(Ticket).filter(Ticket.id == draft.created_ticket_id).first()
         if ticket:
+            ticket_status = getattr(ticket.status, "value", ticket.status)
+            if ticket_status in (TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value):
+                return await _reply_and_notify(
+                    db,
+                    conversation_id,
+                    service_url,
+                    f"Ticket #{ticket.ticket_number} is {str(ticket_status).lower()} and cannot be updated. Reopen it first.",
+                )
             db.add(
                 TicketComment(
                     ticket_id=ticket.id,

@@ -121,6 +121,10 @@ def update_ticket(ticket_id: str, payload: schemas.TicketUpdate, background_task
     if not ticket:
         raise HTTPException(404, "Ticket not found")
 
+    current_status = getattr(ticket.status, "value", ticket.status)
+    if current_status in (models.TicketStatus.RESOLVED.value, models.TicketStatus.CLOSED.value):
+        raise HTTPException(409, "Resolved or closed tickets cannot be updated. Reopen the ticket first.")
+
     updates = payload.model_dump(exclude_unset=True)
 
     # Validate customer_id if being changed - "" or null unassigns.
@@ -171,6 +175,9 @@ def add_comment(ticket_id: str, payload: schemas.TicketCommentCreate, db: Sessio
     ticket = db.query(models.Ticket).get(ticket_id)
     if not ticket:
         raise HTTPException(404, "Ticket not found")
+    current_status = getattr(ticket.status, "value", ticket.status)
+    if current_status in (models.TicketStatus.RESOLVED.value, models.TicketStatus.CLOSED.value):
+        raise HTTPException(409, "Resolved or closed tickets cannot receive comments. Reopen the ticket first.")
     comment = models.TicketComment(ticket_id=ticket_id, **payload.model_dump())
     db.add(comment)
     ticket.updated_at = datetime.utcnow()
