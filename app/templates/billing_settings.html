@@ -229,9 +229,11 @@
 
 <script>
 const knownSkus = {{ known_skus|tojson }};
+const customerSkus = {{ customer_skus|tojson }};
 let activeSkuRow = null;
 let skuPickerModal = null;
 let activeSkuSelection = new Set();
+let activeSkuOptions = [];
 
 function selectedSkuValues(row) {
     return (row.querySelector('.selected-skus-input').value || '')
@@ -240,7 +242,7 @@ function selectedSkuValues(row) {
 
 function renderSkuOptions(selected, filter = '') {
     const normalizedFilter = filter.toLowerCase();
-    const options = knownSkus.filter(([code, name]) =>
+    const options = activeSkuOptions.filter(([code, name]) =>
         !normalizedFilter || `${code} ${name}`.toLowerCase().includes(normalizedFilter)
     );
     const container = document.getElementById('skuOptions');
@@ -270,6 +272,7 @@ document.querySelectorAll('.selected-skus-picker').forEach(picker => {
     picker.querySelector('.choose-skus-btn').addEventListener('click', () => {
         activeSkuRow = row;
         document.getElementById('skuPickerCustomer').textContent = row.querySelector('td').textContent.trim();
+        activeSkuOptions = customerSkus[row.dataset.customerId] || [];
         activeSkuSelection = new Set(selectedSkuValues(row));
         document.getElementById('skuSearch').value = '';
         renderSkuOptions(Array.from(activeSkuSelection));

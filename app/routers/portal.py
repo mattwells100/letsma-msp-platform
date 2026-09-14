@@ -281,12 +281,16 @@ def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Dep
     all_assignments = db.query(LicenseAssignment).all()
 
     sku_lookup = {}
+    customer_skus = {}
 
     for price in license_prices:
         sku_lookup[price.sku_part_number] = price.sku_part_number
 
     for a in all_assignments:
         sku_lookup[a.sku_part_number] = (
+            a.friendly_name or a.sku_part_number
+        )
+        customer_skus.setdefault(a.customer_id, {})[a.sku_part_number] = (
             a.friendly_name or a.sku_part_number
         )
 
@@ -301,6 +305,10 @@ def billing_settings_page(request: Request, db: Session = Depends(get_db), _=Dep
         "customers": customers,
         "license_prices": license_prices,
         "known_skus": known_skus,
+        "customer_skus": {
+            customer_id: sorted(items.items(), key=lambda item: item[1])
+            for customer_id, items in customer_skus.items()
+        },
         "active_page": "billing-settings",
     })
 
