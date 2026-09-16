@@ -26,9 +26,52 @@
     <div class="col-md-3">
         <a class="btn btn-outline-primary w-100" href="/customers/{{ customer.id }}/recurring-billing"><i class="bi bi-arrow-repeat"></i> Recurring Billing</a>
     </div>
+    {% if customer.cloudblue_customer_id %}
+    <div class="col-md-3">
+        <a class="btn btn-outline-primary w-100" href="#cloudBlueLicenseChange"><i class="bi bi-cloud-plus me-1"></i> Manage CloudBlue Licences</a>
+    </div>
+    {% endif %}
 </div>
 
 <div id="contactsSyncResult" class="mb-3"></div>
+
+<div class="card stat-card p-3 mb-4" id="cloudBlueLicenseChange">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+            <h5 class="page-title mb-1">CloudBlue licence change</h5>
+            <div class="small text-muted">Requests require an estimate and manager approval before CloudBlue is changed.</div>
+        </div>
+        {% if customer.cloudblue_customer_id %}<span class="badge bg-light text-dark border">CloudBlue linked</span>{% else %}<span class="badge bg-warning text-dark">CloudBlue not linked</span>{% endif %}
+    </div>
+    <div id="cloudBlueLicenseResult" class="small mt-3"></div>
+    <form class="row g-2 mt-1" onsubmit="return requestCloudBlueLicenseChange(event)">
+        <div class="col-sm-2">
+            <label class="form-label small">Action</label>
+            <select id="cloudBlueLicenseAction" class="form-select form-select-sm">
+                <option value="add">Add licence</option>
+                <option value="remove">Remove licence</option>
+            </select>
+        </div>
+        <div class="col-sm-5">
+            <label class="form-label small">Licence / CloudBlue MPN</label>
+            <select id="cloudBlueLicenseMpn" class="form-select form-select-sm">
+                <option value="">Loading products...</option>
+            </select>
+            <input id="cloudBlueManualMpn" class="form-control form-control-sm mt-1" placeholder="Or enter MPN manually">
+        </div>
+        <div class="col-sm-2">
+            <label class="form-label small">Quantity</label>
+            <input id="cloudBlueLicenseQuantity" class="form-control form-control-sm" type="number" min="1" value="1" required>
+        </div>
+        <div class="col-sm-3">
+            <label class="form-label small">Subscription ID for removal</label>
+            <input id="cloudBlueSubscriptionId" class="form-control form-control-sm" placeholder="Required for removal">
+        </div>
+        <div class="col-12 d-flex justify-content-end">
+            <button class="btn btn-sm btn-outline-primary" type="submit" {% if not customer.cloudblue_customer_id %}disabled{% endif %}><i class="bi bi-send me-1"></i>Request change</button>
+        </div>
+    </form>
+</div>
 
 <div class="card stat-card p-3 mb-4">
     <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
@@ -174,6 +217,65 @@
 </div>
 
 <script>
+async function loadCloudBlueLicenseProducts() {
+    const select = document.getElementById('cloudBlueLicenseMpn');
+    try {
+        const response = await fetch('/api/customers/cloudblue/products');
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Product lookup failed');
+        const products = Array.isArray(payload) ? payload : (payload.data || payload.products || []);
+        select.innerHTML = '<option value="">Select a CloudBlue product</option>';
+        products.forEach(product => {
+            const mpn = product.mpn || product.partNumber || product.code || product.id;
+            if (!mpn) return;
+            select.add(new Option(product.name ? `${product.name} (${mpn})` : mpn, mpn));
+        });
+    } catch (error) {
+        select.innerHTML = '<option value="">Product lookup unavailable - use manual MPN</option>';
+    }
+}
+
+async function requestCloudBlueLicenseChange(event) {
+    event.preventDefault();
+    const action = document.getElementById('cloudBlueLicenseAction').value;
+    const selectedMpn = document.getElementById('cloudBlueLicenseMpn').value;
+    const manualMpn = document.getElementById('cloudBlueManualMpn').value.trim();
+    const subscriptionId = document.getElementById('cloudBlueSubscriptionId').value.trim() || null;
+    const mpn = manualMpn || selectedMpn;
+    const result = document.getElementById('cloudBlueLicenseResult');
+    if (!mpn) { result.innerHTML = '<span class="text-danger">Choose a product or enter an MPN.</span>'; return false; }
+    if (action === 'remove' && !subscriptionId) { result.innerHTML = '<span class="text-danger">A subscription ID is required for removal.</span>'; return false; }
+    const response = await fetch('/api/customers/{{ customer.id }}/cloudblue-license-changes', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action, mpn, quantity: Number(document.getElementById('cloudBlueLicenseQuantity').value), subscription_id: subscriptionId})
+    });
+    const data = await response.json();
+    if (!response.ok) { result.innerHTML = `<span class="text-danger">${data.detail || 'Request failed'}</span>`; return false; }
+    result.innerHTML = `<span class="text-muted">Request ${data.id} created. Calculating estimate...</span>`;
+    await estimateCloudBlueLicenseChange(data.id);
+    return false;
+}
+
+async function estimateCloudBlueLicenseChange(changeId) {
+    const result = document.getElementById('cloudBlueLicenseResult');
+    const response = await fetch(`/api/customers/{{ customer.id }}/cloudblue-license-changes/${changeId}/estimate`, {method: 'POST'});
+    const data = await response.json();
+    if (!response.ok) { result.innerHTML = `<span class="text-danger">Estimate failed: ${data.detail || 'unknown error'}</span>`; return; }
+    result.innerHTML = `<span class="text-success">Estimate ready for request ${changeId}.</span> <button class="btn btn-sm btn-warning ms-2" onclick="approveCloudBlueLicenseChange('${changeId}')">Approve and submit order</button>`;
+}
+
+async function approveCloudBlueLicenseChange(changeId) {
+    if (!confirm('Submit this CloudBlue licence order?')) return;
+    const result = document.getElementById('cloudBlueLicenseResult');
+    const response = await fetch(`/api/customers/{{ customer.id }}/cloudblue-license-changes/${changeId}/approve`, {method: 'POST'});
+    const data = await response.json();
+    result.innerHTML = response.ok
+        ? `<span class="text-success">CloudBlue order submitted for request ${changeId}.</span>`
+        : `<span class="text-danger">Approval failed: ${data.detail || 'unknown error'}</span>`;
+}
+
+loadCloudBlueLicenseProducts();
+
 async function syncLicenses(e) {
     e.preventDefault();
     const resp = await fetch(e.target.action, {method: 'POST'});
