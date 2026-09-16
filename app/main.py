@@ -54,6 +54,18 @@ def _ensure_customer_sla_schema():
 
 _ensure_customer_sla_schema()
 
+
+def _ensure_cloudblue_customer_schema():
+    """Add the CloudBlue customer link when upgrading an existing database."""
+    existing = {column["name"] for column in inspect(engine).get_columns("customers")}
+    if "cloudblue_customer_id" in existing:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE customers ADD COLUMN cloudblue_customer_id VARCHAR"))
+
+
+_ensure_cloudblue_customer_schema()
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="Unified MSP platform: customers, billing (Xero), Microsoft 365 "

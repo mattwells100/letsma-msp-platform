@@ -3,22 +3,28 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="page-title">Customers</h2>
-    <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newCustomerModal">
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-primary" onclick="openCloudBlueCustomers()">
+        <i class="bi bi-cloud-arrow-down me-1"></i>Load CloudBlue Customers
+      </button>
+      <button class="btn btn-sm text-white" style="background-color:#0b2545" data-bs-toggle="modal" data-bs-target="#newCustomerModal">
         <i class="bi bi-plus-lg"></i> New Customer
-    </button>
+      </button>
+    </div>
 </div>
 
 <div id="resultMsg" class="mb-3"></div>
 
 <div class="card stat-card p-3">
     <table class="table align-middle">
-        <thead><tr><th>Name</th><th>Account Manager</th><th>Status</th><th>Phone</th><th>Email</th><th class="text-end">Edit</th></tr></thead>
+        <thead><tr><th>Name</th><th>Account Manager</th><th>Status</th><th>CloudBlue ID</th><th>Phone</th><th>Email</th><th class="text-end">Edit</th></tr></thead>
         <tbody>
         {% for c in customers %}
-            <tr onclick="window.location='/customers/{{ c.id }}'" style="cursor:pointer">
+            <tr data-customer-id="{{ c.id }}" onclick="window.location='/customers/{{ c.id }}'" style="cursor:pointer">
                 <td><strong>{{ c.name }}</strong>{% if c.trading_name %}<div class="small text-muted">{{ c.trading_name }}</div>{% endif %}</td>
                 <td>{{ c.account_manager or '-' }}</td>
                 <td><span class="badge bg-success">{{ c.status }}</span></td>
+                <td class="small font-monospace">{{ c.cloudblue_customer_id or 'Not linked' }}</td>
                 <td>{{ c.phone or '-' }}</td>
                 <td>{{ c.email or '-' }}</td>
                 <td class="text-end">
@@ -32,12 +38,13 @@
                             "email": c.email,
                             "account_manager": c.account_manager,
                             "whatsapp_number": c.whatsapp_number,
-                            "m365_tenant_id": c.m365_tenant_id
+                            "m365_tenant_id": c.m365_tenant_id,
+                            "cloudblue_customer_id": c.cloudblue_customer_id
                         }|tojson }})'><i class="bi bi-pencil"></i></button>
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="6" class="text-muted">No customers yet - add one via the API (POST /api/customers) or the button above.</td></tr>
+            <tr><td colspan="7" class="text-muted">No customers yet - add one via the API (POST /api/customers) or the button above.</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -58,6 +65,7 @@
           <div class="mb-2"><label class="form-label">Address</label><input class="form-control" name="address"></div>
           <div class="mb-2"><label class="form-label">WhatsApp Number (E.164, no +)</label><input class="form-control" name="whatsapp_number" placeholder="447700900123"></div>
           <div class="mb-2"><label class="form-label">Microsoft 365 Tenant ID</label><input class="form-control" name="m365_tenant_id"></div>
+          <div class="mb-2"><label class="form-label">CloudBlue Customer ID</label><input class="form-control" name="cloudblue_customer_id" placeholder="ID from Infinigate Marketplace"></div>
         </form>
       </div>
       <div class="modal-footer">
@@ -83,6 +91,7 @@
           <div class="mb-2"><label class="form-label">Address</label><input class="form-control" id="edit_address"></div>
           <div class="mb-2"><label class="form-label">WhatsApp Number (E.164, no +)</label><input class="form-control" id="edit_whatsapp_number" placeholder="447700900123"></div>
           <div class="mb-2"><label class="form-label">Microsoft 365 Tenant ID</label><input class="form-control" id="edit_m365_tenant_id"></div>
+          <div class="mb-2"><label class="form-label">CloudBlue Customer ID</label><input class="form-control" id="edit_cloudblue_customer_id" placeholder="ID from Infinigate Marketplace"></div>
         </form>
       </div>
       <div class="modal-footer">
@@ -92,8 +101,86 @@
   </div>
 </div>
 
+<div class="modal fade" id="cloudBlueCustomersModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title">Link CloudBlue Customers</h5>
+          <div class="small text-muted">Choose the local customer for each Marketplace record.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="cloudBlueCustomersResult" class="small text-muted">Loading...</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle" id="cloudBlueCustomersTable" style="display:none;">
+            <thead><tr><th>CloudBlue customer</th><th>CloudBlue ID</th><th>Local customer</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 let editCustomerModal;
+let cloudBlueCustomersModal;
+
+async function openCloudBlueCustomers() {
+  if (!cloudBlueCustomersModal) {
+    cloudBlueCustomersModal = new bootstrap.Modal(document.getElementById('cloudBlueCustomersModal'));
+  }
+  cloudBlueCustomersModal.show();
+  const result = document.getElementById('cloudBlueCustomersResult');
+  const table = document.getElementById('cloudBlueCustomersTable');
+  const tbody = table.querySelector('tbody');
+  result.textContent = 'Loading CloudBlue customers...';
+  table.style.display = 'none';
+  try {
+    const response = await fetch('/api/customers/cloudblue');
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'CloudBlue lookup failed');
+    const records = Array.isArray(payload) ? payload : (payload.data || []);
+    if (!records.length) {
+      result.textContent = 'No CloudBlue customers returned.';
+      return;
+    }
+    const localCustomers = {{ customers|map(attribute='id')|list|tojson }}.map(id => ({
+      id,
+      name: document.querySelector(`tr[data-customer-id="${id}"] strong`)?.textContent || id
+    }));
+    tbody.innerHTML = '';
+    records.forEach(record => {
+      const row = document.createElement('tr');
+      const suggested = localCustomers.find(customer => customer.name.toLowerCase() === String(record.name || '').toLowerCase());
+      row.innerHTML = `<td></td><td class="small font-monospace"></td><td><select class="form-select form-select-sm"></select></td><td><button class="btn btn-sm btn-primary">Link</button></td>`;
+      row.children[0].textContent = record.name || 'Unnamed';
+      row.children[1].textContent = record.id || '';
+      const select = row.querySelector('select');
+      select.add(new Option('-- Select local customer --', ''));
+      localCustomers.forEach(customer => select.add(new Option(customer.name, customer.id, false, suggested?.id === customer.id)));
+      row.querySelector('button').addEventListener('click', () => linkCloudBlueCustomer(record.id, select.value, row));
+      tbody.appendChild(row);
+    });
+    result.textContent = `${records.length} CloudBlue customer(s) loaded.`;
+    table.style.display = '';
+  } catch (error) {
+    result.innerHTML = `<span class="text-danger">${error.message}</span>`;
+  }
+}
+
+async function linkCloudBlueCustomer(cloudBlueId, localCustomerId, row) {
+  if (!localCustomerId) return alert('Select a local customer first.');
+  const response = await fetch(`/api/customers/${localCustomerId}/cloudblue-link`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({cloudblue_customer_id: cloudBlueId})
+  });
+  if (!response.ok) return alert('Failed to link customer: ' + await response.text());
+  row.querySelector('button').textContent = 'Linked';
+  row.querySelector('button').disabled = true;
+}
 
 async function submitNewCustomer() {
     const form = document.getElementById('newCustomerForm');
@@ -114,6 +201,7 @@ function openEditCustomer(c) {
     document.getElementById('edit_address').value = c.address || '';
     document.getElementById('edit_whatsapp_number').value = c.whatsapp_number || '';
     document.getElementById('edit_m365_tenant_id').value = c.m365_tenant_id || '';
+    document.getElementById('edit_cloudblue_customer_id').value = c.cloudblue_customer_id || '';
     if (!editCustomerModal) editCustomerModal = new bootstrap.Modal(document.getElementById('editCustomerModal'));
     editCustomerModal.show();
 }
@@ -129,7 +217,8 @@ async function submitEditCustomer() {
         email: document.getElementById('edit_email').value || null,
         account_manager: document.getElementById('edit_account_manager').value || null,
         whatsapp_number: document.getElementById('edit_whatsapp_number').value || null,
-        m365_tenant_id: document.getElementById('edit_m365_tenant_id').value || null
+        m365_tenant_id: document.getElementById('edit_m365_tenant_id').value || null,
+        cloudblue_customer_id: document.getElementById('edit_cloudblue_customer_id').value || null
     };
     try {
         const resp = await fetch('/api/customers/' + id, {

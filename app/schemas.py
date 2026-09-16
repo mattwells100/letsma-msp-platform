@@ -14,6 +14,7 @@ class CustomerCreate(BaseModel):
     account_manager: Optional[str] = None
     whatsapp_number: Optional[str] = None
     m365_tenant_id: Optional[str] = None
+    cloudblue_customer_id: Optional[str] = None
 
 
 class CustomerOut(CustomerCreate):

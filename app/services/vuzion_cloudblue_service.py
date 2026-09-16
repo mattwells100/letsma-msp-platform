@@ -23,28 +23,31 @@ def _require_configuration() -> None:
         and settings.VUZION_CLOUDBLUE_SUBSCRIPTION_KEY
         and settings.VUZION_CLOUDBLUE_USERNAME
         and settings.VUZION_CLOUDBLUE_PASSWORD
-        and settings.VUZION_CLOUDBLUE_CLIENT_ID
-        and settings.VUZION_CLOUDBLUE_REALM
     ):
         raise VuzionCloudBlueNotConfigured("Vuzion CloudBlue credentials are incomplete")
 
 
-async def _get_id_token(client: httpx.AsyncClient) -> str:
-    """Authenticate with CloudBlue IDP using the documented password flow."""
+async def _get_access_token(client: httpx.AsyncClient) -> str:
+    """Authenticate against the Marketplace API token endpoint."""
     response = await client.post(
-        f"{settings.VUZION_CLOUDBLUE_BASE_URL.rstrip('/')}/auth/realms/{settings.VUZION_CLOUDBLUE_REALM}/protocol/openid-connect/token",
-        data={
-            "grant_type": "password",
-            "username": settings.VUZION_CLOUDBLUE_USERNAME,
-            "password": settings.VUZION_CLOUDBLUE_PASSWORD,
-            "client_id": settings.VUZION_CLOUDBLUE_CLIENT_ID,
-            "scope": "openid",
+        f"{settings.VUZION_CLOUDBLUE_BASE_URL.rstrip('/')}/token",
+        auth=(settings.VUZION_CLOUDBLUE_USERNAME, settings.VUZION_CLOUDBLUE_PASSWORD),
+        headers={
+            "Content-Type": "application/json",
+            "X-Subscription-Key": settings.VUZION_CLOUDBLUE_SUBSCRIPTION_KEY,
         },
+        json={"marketplace": settings.VUZION_CLOUDBLUE_MARKETPLACE},
     )
     response.raise_for_status()
-    token = response.json().get("id_token")
+    response_data = response.json()
+    token = (
+        response_data.get("access_token")
+        or response_data.get("token")
+        or response_data.get("bearer_token")
+        or response_data.get("id_token")
+    )
     if not token:
-        raise RuntimeError("Vuzion CloudBlue authentication returned no id_token")
+        raise RuntimeError("Vuzion CloudBlue authentication returned no bearer token")
     return token
 
 
@@ -56,7 +59,7 @@ async def _authorized_request(
 ) -> httpx.Response:
     _require_configuration()
     async with httpx.AsyncClient(timeout=60.0) as client:
-        token = await _get_id_token(client)
+        token = await _get_access_token(client)
         return await client.request(
             method,
             f"{settings.VUZION_CLOUDBLUE_BASE_URL.rstrip('/')}/{path.lstrip('/')}",
@@ -72,6 +75,13 @@ async def _authorized_request(
 async def get_products() -> dict:
     """Return the configured CloudBlue product catalog."""
     response = await _authorized_request("GET", "/products")
+    response.raise_for_status()
+    return response.json()
+
+
+async def get_customers() -> dict:
+    """Return customers from the configured CloudBlue Marketplace."""
+    response = await _authorized_request("GET", "/customers")
     response.raise_for_status()
     return response.json()
 

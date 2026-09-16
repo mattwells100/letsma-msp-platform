@@ -1,11 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.database import get_db
 from app import models, schemas
+from app.services import vuzion_cloudblue_service
 
 router = APIRouter(prefix="/api/customers", tags=["Customers"])
+
+
+class CloudBlueCustomerLink(BaseModel):
+    cloudblue_customer_id: str
+
+
+@router.get("/cloudblue")
+async def list_cloudblue_customers():
+    """Return CloudBlue customers available to link to local records."""
+    try:
+        return await vuzion_cloudblue_service.get_customers()
+    except vuzion_cloudblue_service.VuzionCloudBlueNotConfigured as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"CloudBlue customer lookup failed: {exc}")
 
 
 @router.get("/", response_model=List[schemas.CustomerOut])
@@ -27,6 +44,23 @@ def get_customer(customer_id: str, db: Session = Depends(get_db)):
     customer = db.query(models.Customer).get(customer_id)
     if not customer:
         raise HTTPException(404, "Customer not found")
+    return customer
+
+
+@router.patch("/{customer_id}/cloudblue-link", response_model=schemas.CustomerOut)
+def link_cloudblue_customer(
+    customer_id: str,
+    payload: CloudBlueCustomerLink,
+    db: Session = Depends(get_db),
+):
+    customer = db.query(models.Customer).get(customer_id)
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    customer.cloudblue_customer_id = payload.cloudblue_customer_id.strip()
+    if not customer.cloudblue_customer_id:
+        raise HTTPException(400, "CloudBlue customer ID is required")
+    db.commit()
+    db.refresh(customer)
     return customer
 
 

@@ -86,6 +86,7 @@ class Customer(Base):
     status = Column(String, default="Active")  # Active, Onboarding, Offboarded
     xero_contact_id = Column(String, nullable=True)   # link to Xero Contact
     m365_tenant_id = Column(String, nullable=True)     # customer's Entra tenant (for Graph/GDAP)
+    cloudblue_customer_id = Column(String, nullable=True)  # Infinigate/Vuzion Marketplace customer ID
     whatsapp_number = Column(String, nullable=True)    # primary WhatsApp contact number
     created_at = Column(DateTime, default=datetime.utcnow)
 
