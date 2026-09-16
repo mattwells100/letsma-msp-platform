@@ -126,7 +126,7 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
         try:
             plan = await vuzion_cloudblue_service.get_service_plan(str(plan_id))
         except Exception:
-            continue
+            plan = None
         plan_payload = plan.get("data") if isinstance(plan, dict) and isinstance(plan.get("data"), dict) else plan
         mpn = _first_nested_value(
             plan_payload,
@@ -134,10 +134,41 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
              "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code",
              "productNumber", "product_number", "itemCode", "item_code", "code"),
         )
-        label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName")) or mpn
+        if not mpn:
+            mpn, label = await _find_catalogue_product(plan_id, subscription)
+        else:
+            label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName"))
+        label = label or mpn
         if mpn:
             normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label or mpn)})
     return normalised, len(records)
+
+
+async def _find_catalogue_product(plan_id: str, subscription: dict) -> tuple[object | None, object | None]:
+    try:
+        payload = await vuzion_cloudblue_service.get_products()
+    except Exception:
+        return None, None
+    records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("products") or payload.get("items") or [])
+    if isinstance(records, dict):
+        records = records.get("items") or records.get("results") or records.get("products") or []
+    if not isinstance(records, list):
+        return None, None
+    identifiers = {str(plan_id).lower()}
+    for key in ("offerId", "offer_id", "productId", "product_id", "skuId", "sku_id", "itemId", "item_id"):
+        value = _first_nested_value(subscription, (key,))
+        if value not in (None, ""):
+            identifiers.add(str(value).lower())
+    for product in records:
+        if not isinstance(product, dict):
+            continue
+        product_id = _first_nested_value(product, ("id", "offerId", "offer_id", "productId", "product_id", "skuId", "sku_id", "itemId", "item_id"))
+        if product_id is None or str(product_id).lower() not in identifiers:
+            continue
+        mpn = _first_nested_value(product, ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number", "productCode", "product_code", "offerCode", "offer_code", "productNumber", "product_number", "itemCode", "item_code", "code"))
+        label = _first_nested_value(product, ("name", "productName", "friendlyName", "planName"))
+        return mpn, label
+    return None, None
 
 
 @router.get("/cloudblue")
