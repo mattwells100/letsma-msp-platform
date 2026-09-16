@@ -56,6 +56,7 @@ async def _authorized_request(
     path: str,
     *,
     json: dict | None = None,
+    params: dict | None = None,
     require_provisioning: bool = False,
 ) -> httpx.Response:
     _require_configuration(require_provisioning=require_provisioning)
@@ -69,6 +70,7 @@ async def _authorized_request(
                 "X-Subscription-Key": settings.VUZION_CLOUDBLUE_SUBSCRIPTION_KEY,
                 "Content-Type": "application/json",
             },
+            params=params,
             json=json,
         )
 
@@ -81,10 +83,49 @@ async def get_products() -> dict:
 
 
 async def get_customers() -> dict:
-    """Return customers from the configured CloudBlue Marketplace."""
+    """Return all customers from the paginated CloudBlue Marketplace endpoint."""
     response = await _authorized_request("GET", "/customers")
     response.raise_for_status()
-    return response.json()
+    payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        return payload
+
+    customers = list(payload["data"])
+    pagination = payload.get("pagination") or {}
+    total_pages = (
+        pagination.get("totalPages")
+        or pagination.get("total_pages")
+        or pagination.get("pages")
+    )
+    current_page = pagination.get("page") or pagination.get("currentPage") or 1
+
+    # CloudBlue defaults to a small page. Follow numbered pages until the
+    # response is empty or a repeated page proves pagination is unsupported.
+    page = int(current_page) + 1
+    while total_pages is None or page <= int(total_pages):
+        next_response = await _authorized_request(
+            "GET", "/customers", params={"page": page}
+        )
+        next_response.raise_for_status()
+        next_payload = next_response.json()
+        next_data = next_payload.get("data", []) if isinstance(next_payload, dict) else []
+        if not next_data:
+            break
+        existing_ids = {str(customer.get("id")) for customer in customers if isinstance(customer, dict)}
+        new_customers = [
+            customer for customer in next_data
+            if not isinstance(customer, dict) or str(customer.get("id")) not in existing_ids
+        ]
+        if not new_customers:
+            break
+        customers.extend(new_customers)
+        page += 1
+
+    payload["data"] = customers
+    if isinstance(pagination, dict):
+        pagination["loadedCount"] = len(customers)
+        payload["pagination"] = pagination
+    return payload
 
 
 async def place_sales_order(payload: dict) -> dict:
