@@ -92,19 +92,16 @@ async def get_customers() -> dict:
 
     customers = list(payload["data"])
     pagination = payload.get("pagination") or {}
-    total_pages = (
-        pagination.get("totalPages")
-        or pagination.get("total_pages")
-        or pagination.get("pages")
-    )
-    current_page = pagination.get("page") or pagination.get("currentPage") or 1
+    total = pagination.get("total")
+    offset = int(pagination.get("offset") or 0)
+    limit = int(pagination.get("limit") or len(customers) or 10)
 
-    # CloudBlue defaults to a small page. Follow numbered pages until the
-    # response is empty or a repeated page proves pagination is unsupported.
-    page = int(current_page) + 1
-    while total_pages is None or page <= int(total_pages):
+    # CloudBlue uses offset/limit pagination. Continue until the reported
+    # total is loaded or a repeated/empty page proves there are no more rows.
+    offset += limit
+    while total is None or offset < int(total):
         next_response = await _authorized_request(
-            "GET", "/customers", params={"page": page}
+            "GET", "/customers", params={"offset": offset, "limit": limit}
         )
         next_response.raise_for_status()
         next_payload = next_response.json()
@@ -119,7 +116,7 @@ async def get_customers() -> dict:
         if not new_customers:
             break
         customers.extend(new_customers)
-        page += 1
+        offset += limit
 
     payload["data"] = customers
     if isinstance(pagination, dict):
