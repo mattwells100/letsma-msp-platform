@@ -80,6 +80,33 @@ def _find_product_record(subscription: dict) -> dict | None:
     return None
 
 
+async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[dict], int]:
+    records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("subscriptions") or [])
+    if isinstance(records, dict):
+        records = records.get("items") or records.get("results") or records.get("subscriptions") or []
+    normalised = _normalise_cloudblue_subscriptions(payload)
+    if normalised or not isinstance(records, list):
+        return normalised, len(records) if isinstance(records, list) else 0
+
+    for subscription in records:
+        if not isinstance(subscription, dict):
+            continue
+        plan_id = _subscription_plan_id(subscription)
+        subscription_id = _first_nested_value(subscription, ("id", "subscriptionId", "subscription_id"))
+        if not plan_id or not subscription_id:
+            continue
+        try:
+            plan = await vuzion_cloudblue_service.get_service_plan(str(plan_id))
+        except Exception:
+            continue
+        plan_payload = plan.get("data") if isinstance(plan, dict) and isinstance(plan.get("data"), dict) else plan
+        mpn = _first_nested_value(plan_payload, ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code"))
+        label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName")) or mpn
+        if mpn:
+            normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label or mpn)})
+    return normalised, len(records)
+
+
 @router.get("/cloudblue")
 async def list_cloudblue_customers():
     """Return CloudBlue customers available to link to local records."""
@@ -110,29 +137,8 @@ async def list_cloudblue_subscriptions(customer_id: str, db: Session = Depends(g
         raise HTTPException(409, "Customer is not linked to CloudBlue")
     try:
         payload = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
-        raw_records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("subscriptions") or [])
-        if isinstance(raw_records, dict):
-            raw_records = raw_records.get("items") or raw_records.get("results") or raw_records.get("subscriptions") or []
-        normalised = _normalise_cloudblue_subscriptions(payload)
-        if not normalised:
-            records = raw_records if isinstance(raw_records, list) else []
-            for subscription in records:
-                if not isinstance(subscription, dict):
-                    continue
-                plan_id = _subscription_plan_id(subscription)
-                subscription_id = _first_nested_value(subscription, ("id", "subscriptionId", "subscription_id"))
-                if not plan_id or not subscription_id:
-                    continue
-                try:
-                    plan = await vuzion_cloudblue_service.get_service_plan(str(plan_id))
-                except Exception:
-                    continue
-                plan_payload = plan.get("data") if isinstance(plan, dict) and isinstance(plan.get("data"), dict) else plan
-                mpn = _first_nested_value(plan_payload, ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code"))
-                label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName")) or mpn
-                if mpn:
-                    normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label or mpn)})
-        return {"data": normalised, "raw_count": len(raw_records) if isinstance(raw_records, list) else 0}
+        normalised, raw_count = await _normalise_customer_subscriptions(payload)
+        return {"data": normalised, "raw_count": raw_count}
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
 
@@ -198,7 +204,7 @@ async def request_cloudblue_license_change(
         subscriptions = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
-    records = _normalise_cloudblue_subscriptions(subscriptions)
+    records, _ = await _normalise_customer_subscriptions(subscriptions)
     valid_selection = False
     for subscription in records:
         subscription_id = str(subscription.get("id") or "")
@@ -236,6 +242,8 @@ async def estimate_cloudblue_license_change(customer_id: str, change_id: str, db
         "type": "change" if change.action == "remove" else "new",
         "products": [{"mpn": change.mpn, "quantity": change.quantity}],
     }
+    if change.subscription_id:
+        payload["products"][0]["subscriptionId"] = change.subscription_id
     change.estimate_payload = json.dumps(payload)
     try:
         result = await vuzion_cloudblue_service.estimate_sales_order(payload)
