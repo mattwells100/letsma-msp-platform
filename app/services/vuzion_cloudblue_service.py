@@ -149,6 +149,13 @@ async def get_subscriptions(cloudblue_customer_id: str) -> dict:
     return fallback.json()
 
 
+async def get_service_plan(plan_id: str) -> dict:
+    """Return the CloudBlue service plan used by a subscription."""
+    response = await _authorized_request("GET", f"/plans/{plan_id}")
+    response.raise_for_status()
+    return response.json()
+
+
 async def place_sales_order(payload: dict) -> dict:
     """Place a sales order only after explicit provisioning is enabled."""
     response = await _authorized_request(

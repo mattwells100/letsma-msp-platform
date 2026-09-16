@@ -44,6 +44,13 @@ def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
     return normalised
 
 
+def _subscription_plan_id(subscription: dict) -> str | None:
+    return _first_nested_value(
+        subscription,
+        ("planId", "plan_id", "servicePlanId", "service_plan_id", "planCode"),
+    )
+
+
 def _first_nested_value(value: object, keys: tuple[str, ...]) -> object | None:
     if isinstance(value, dict):
         for key in keys:
@@ -107,6 +114,24 @@ async def list_cloudblue_subscriptions(customer_id: str, db: Session = Depends(g
         if isinstance(raw_records, dict):
             raw_records = raw_records.get("items") or raw_records.get("results") or raw_records.get("subscriptions") or []
         normalised = _normalise_cloudblue_subscriptions(payload)
+        if not normalised:
+            records = raw_records if isinstance(raw_records, list) else []
+            for subscription in records:
+                if not isinstance(subscription, dict):
+                    continue
+                plan_id = _subscription_plan_id(subscription)
+                subscription_id = _first_nested_value(subscription, ("id", "subscriptionId", "subscription_id"))
+                if not plan_id or not subscription_id:
+                    continue
+                try:
+                    plan = await vuzion_cloudblue_service.get_service_plan(str(plan_id))
+                except Exception:
+                    continue
+                plan_payload = plan.get("data") if isinstance(plan, dict) and isinstance(plan.get("data"), dict) else plan
+                mpn = _first_nested_value(plan_payload, ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code"))
+                label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName")) or mpn
+                if mpn:
+                    normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label or mpn)})
         return {"data": normalised, "raw_count": len(raw_records) if isinstance(raw_records, list) else 0}
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
