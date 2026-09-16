@@ -36,7 +36,11 @@ def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
             continue
         subscription_id = _first_nested_value(subscription, ("id", "subscriptionId", "subscription_id"))
         product = _find_product_record(subscription)
-        mpn = _first_nested_value(subscription, ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code"))
+        mpn = _first_nested_value(
+            subscription,
+            ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number",
+             "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code", "code"),
+        )
         if not mpn or not subscription_id:
             continue
         label = _first_nested_value(product or subscription, ("name", "productName", "friendlyName", "planName")) or mpn
@@ -53,9 +57,11 @@ def _subscription_plan_id(subscription: dict) -> str | None:
 
 def _first_nested_value(value: object, keys: tuple[str, ...]) -> object | None:
     if isinstance(value, dict):
+        values_by_lower_key = {str(key).lower(): child for key, child in value.items()}
         for key in keys:
-            if value.get(key) not in (None, ""):
-                return value[key]
+            found = values_by_lower_key.get(key.lower())
+            if found not in (None, ""):
+                return found
         for child in value.values():
             found = _first_nested_value(child, keys)
             if found not in (None, ""):
@@ -100,7 +106,11 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
         except Exception:
             continue
         plan_payload = plan.get("data") if isinstance(plan, dict) and isinstance(plan.get("data"), dict) else plan
-        mpn = _first_nested_value(plan_payload, ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code"))
+        mpn = _first_nested_value(
+            plan_payload,
+            ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number",
+             "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code", "code"),
+        )
         label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName")) or mpn
         if mpn:
             normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label or mpn)})
