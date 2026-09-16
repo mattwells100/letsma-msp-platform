@@ -28,13 +28,15 @@ class CloudBlueLicenseChangeRequest(BaseModel):
 
 def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
     records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("subscriptions") or [])
+    if isinstance(records, dict):
+        records = records.get("items") or records.get("results") or records.get("subscriptions") or []
     normalised = []
     for subscription in records:
         if not isinstance(subscription, dict):
             continue
         subscription_id = _first_nested_value(subscription, ("id", "subscriptionId", "subscription_id"))
         product = _find_product_record(subscription)
-        mpn = _first_nested_value(product or subscription, ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code"))
+        mpn = _first_nested_value(subscription, ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code"))
         if not mpn or not subscription_id:
             continue
         label = _first_nested_value(product or subscription, ("name", "productName", "friendlyName", "planName")) or mpn
@@ -101,7 +103,11 @@ async def list_cloudblue_subscriptions(customer_id: str, db: Session = Depends(g
         raise HTTPException(409, "Customer is not linked to CloudBlue")
     try:
         payload = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
-        return {"data": _normalise_cloudblue_subscriptions(payload)}
+        raw_records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("subscriptions") or [])
+        if isinstance(raw_records, dict):
+            raw_records = raw_records.get("items") or raw_records.get("results") or raw_records.get("subscriptions") or []
+        normalised = _normalise_cloudblue_subscriptions(payload)
+        return {"data": normalised, "raw_count": len(raw_records) if isinstance(raw_records, list) else 0}
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
 

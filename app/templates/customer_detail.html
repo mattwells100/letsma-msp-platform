@@ -225,19 +225,21 @@ async function loadCloudBlueLicenseProducts() {
         const subscriptions = Array.isArray(payload) ? payload : (payload.data || payload.subscriptions || []);
         select.innerHTML = '<option value="">Select a subscribed licence</option>';
         subscriptions.forEach(subscription => {
-            const subscriptionId = subscription.id || subscription.subscriptionId;
-            const products = subscription.products || subscription.items || [subscription];
-            products.forEach(product => {
-                const mpn = product.mpn || product.partNumber || product.sku || product.skuPartNumber || product.code;
-                if (!mpn || !subscriptionId) return;
-                const label = product.name || product.productName || product.friendlyName || mpn;
-                const option = new Option(`${label} (${mpn})`, mpn);
-                option.dataset.subscriptionId = subscriptionId;
-                option.dataset.cloudblueSubscriptionId = subscriptionId;
-                select.add(option);
-            });
+            const subscriptionId = subscription.id;
+            const mpn = subscription.mpn;
+            if (!mpn || !subscriptionId) return;
+            const label = subscription.label || mpn;
+            const option = new Option(`${label} (${mpn})`, mpn);
+            option.dataset.subscriptionId = subscriptionId;
+            option.dataset.cloudblueSubscriptionId = subscriptionId;
+            select.add(option);
         });
-        if (select.options.length === 1) select.options[0].textContent = 'No active subscribed licences found';
+        if (select.options.length === 1) {
+            const rawCount = Number(payload.raw_count || 0);
+            select.options[0].textContent = rawCount
+                ? `CloudBlue returned ${rawCount} subscription(s), but no licence MPN was found`
+                : 'No active subscribed licences found';
+        }
     } catch (error) {
         select.innerHTML = `<option value="">${error.message}</option>`;
     }
