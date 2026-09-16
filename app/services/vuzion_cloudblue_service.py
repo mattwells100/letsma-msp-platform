@@ -15,8 +15,8 @@ class VuzionCloudBlueNotConfigured(RuntimeError):
     pass
 
 
-def _require_configuration() -> None:
-    if not settings.VUZION_CLOUDBLUE_ENABLED:
+def _require_configuration(*, require_provisioning: bool = False) -> None:
+    if require_provisioning and not settings.VUZION_CLOUDBLUE_ENABLED:
         raise VuzionCloudBlueNotConfigured("Vuzion CloudBlue provisioning is disabled")
     if not (
         settings.VUZION_CLOUDBLUE_BASE_URL
@@ -56,8 +56,9 @@ async def _authorized_request(
     path: str,
     *,
     json: dict | None = None,
+    require_provisioning: bool = False,
 ) -> httpx.Response:
-    _require_configuration()
+    _require_configuration(require_provisioning=require_provisioning)
     async with httpx.AsyncClient(timeout=60.0) as client:
         token = await _get_access_token(client)
         return await client.request(
@@ -88,6 +89,11 @@ async def get_customers() -> dict:
 
 async def place_sales_order(payload: dict) -> dict:
     """Place a sales order only after explicit provisioning is enabled."""
-    response = await _authorized_request("POST", "/orders", json=payload)
+    response = await _authorized_request(
+        "POST",
+        "/orders",
+        json=payload,
+        require_provisioning=True,
+    )
     response.raise_for_status()
     return response.json()
