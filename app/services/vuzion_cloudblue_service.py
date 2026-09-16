@@ -125,6 +125,17 @@ async def get_customers() -> dict:
     return payload
 
 
+async def get_subscriptions(cloudblue_customer_id: str) -> dict:
+    """Return active CloudBlue subscriptions for one Marketplace customer."""
+    response = await _authorized_request(
+        "GET",
+        "/subscriptions",
+        params={"customerId": cloudblue_customer_id, "status": "active"},
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 async def place_sales_order(payload: dict) -> dict:
     """Place a sales order only after explicit provisioning is enabled."""
     response = await _authorized_request(
@@ -133,5 +144,12 @@ async def place_sales_order(payload: dict) -> dict:
         json=payload,
         require_provisioning=True,
     )
+    response.raise_for_status()
+    return response.json()
+
+
+async def estimate_sales_order(payload: dict) -> dict:
+    """Estimate a licence change without placing an order."""
+    response = await _authorized_request("POST", "/orders/estimate", json=payload)
     response.raise_for_status()
     return response.json()

@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.database import get_db
 from app import models, schemas
+from app.deps import require_manager_or_admin
 from app.services import vuzion_cloudblue_service
 
 router = APIRouter(prefix="/api/customers", tags=["Customers"])
@@ -12,6 +16,14 @@ router = APIRouter(prefix="/api/customers", tags=["Customers"])
 
 class CloudBlueCustomerLink(BaseModel):
     cloudblue_customer_id: str
+
+
+class CloudBlueLicenseChangeRequest(BaseModel):
+    action: str
+    mpn: str
+    quantity: int = 1
+    subscription_id: str | None = None
+    ticket_id: str | None = None
 
 
 @router.get("/cloudblue")
@@ -23,6 +35,29 @@ async def list_cloudblue_customers():
         raise HTTPException(503, str(exc))
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue customer lookup failed: {exc}")
+
+
+@router.get("/cloudblue/products")
+async def list_cloudblue_products():
+    """Return products available for an approved licence change."""
+    try:
+        return await vuzion_cloudblue_service.get_products()
+    except Exception as exc:
+        raise HTTPException(502, f"CloudBlue product lookup failed: {exc}")
+
+
+@router.get("/cloudblue/subscriptions/{customer_id}")
+async def list_cloudblue_subscriptions(customer_id: str, db: Session = Depends(get_db)):
+    """Return active CloudBlue subscriptions for a linked local customer."""
+    customer = db.query(models.Customer).get(customer_id)
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    if not customer.cloudblue_customer_id:
+        raise HTTPException(409, "Customer is not linked to CloudBlue")
+    try:
+        return await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
+    except Exception as exc:
+        raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
 
 
 @router.get("/", response_model=List[schemas.CustomerOut])
@@ -62,6 +97,120 @@ def link_cloudblue_customer(
     db.commit()
     db.refresh(customer)
     return customer
+
+
+@router.post("/{customer_id}/cloudblue-license-changes")
+async def request_cloudblue_license_change(
+    customer_id: str,
+    payload: CloudBlueLicenseChangeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    customer = db.query(models.Customer).get(customer_id)
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    if not customer.cloudblue_customer_id:
+        raise HTTPException(409, "Link the customer to CloudBlue before requesting a licence change")
+    if payload.action not in {"add", "remove"}:
+        raise HTTPException(400, "Action must be add or remove")
+    if payload.quantity < 1:
+        raise HTTPException(400, "Quantity must be at least 1")
+    if not payload.subscription_id:
+        raise HTTPException(400, "Select a subscribed licence first")
+    try:
+        subscriptions = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
+    except Exception as exc:
+        raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
+    records = subscriptions if isinstance(subscriptions, list) else subscriptions.get("data", [])
+    valid_selection = False
+    for subscription in records:
+        subscription_id = str(subscription.get("id") or subscription.get("subscriptionId") or "")
+        if subscription_id != payload.subscription_id:
+            continue
+        products = subscription.get("products") or subscription.get("items") or [subscription]
+        valid_selection = any(
+            str(product.get("mpn") or product.get("partNumber") or product.get("sku") or product.get("skuPartNumber") or "")
+            == payload.mpn.strip()
+            for product in products
+        )
+        break
+    if not valid_selection:
+        raise HTTPException(400, "Selected licence is not on this customer's active CloudBlue subscription")
+
+    change = models.CloudBlueLicenseChange(
+        customer_id=customer_id,
+        ticket_id=payload.ticket_id,
+        action=payload.action,
+        mpn=payload.mpn.strip(),
+        quantity=payload.quantity,
+        subscription_id=payload.subscription_id,
+        requested_by=(request.session.get("user") or {}).get("email"),
+    )
+    db.add(change)
+    db.commit()
+    db.refresh(change)
+    return {"id": change.id, "status": change.status, "customer_id": customer_id}
+
+
+@router.post("/{customer_id}/cloudblue-license-changes/{change_id}/estimate")
+async def estimate_cloudblue_license_change(customer_id: str, change_id: str, db: Session = Depends(get_db)):
+    change = db.query(models.CloudBlueLicenseChange).filter_by(id=change_id, customer_id=customer_id).first()
+    if not change:
+        raise HTTPException(404, "Licence change not found")
+    if change.status not in {"pending_approval", "estimated"}:
+        raise HTTPException(409, "Only pending changes can be estimated")
+    payload = {
+        "customerId": change.customer.cloudblue_customer_id,
+        "type": "change" if change.action == "remove" else "new",
+        "products": [{"mpn": change.mpn, "quantity": change.quantity}],
+    }
+    change.estimate_payload = json.dumps(payload)
+    try:
+        result = await vuzion_cloudblue_service.estimate_sales_order(payload)
+    except Exception as exc:
+        change.status = "estimate_failed"
+        db.commit()
+        raise HTTPException(502, f"CloudBlue estimate failed: {exc}")
+    change.estimate_response = json.dumps(result)
+    change.status = "estimated"
+    db.commit()
+    return {"id": change.id, "status": change.status, "estimate": result}
+
+
+@router.post("/{customer_id}/cloudblue-license-changes/{change_id}/approve")
+async def approve_cloudblue_license_change(
+    customer_id: str,
+    change_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _=Depends(require_manager_or_admin),
+):
+    change = db.query(models.CloudBlueLicenseChange).filter_by(id=change_id, customer_id=customer_id).first()
+    if not change:
+        raise HTTPException(404, "Licence change not found")
+    if change.status != "estimated":
+        raise HTTPException(409, "Estimate the licence change before approving it")
+    payload = {
+        "customerId": change.customer.cloudblue_customer_id,
+        "type": "change" if change.action == "remove" else "new",
+        "products": [{"mpn": change.mpn, "quantity": change.quantity}],
+    }
+    if change.subscription_id:
+        payload["products"][0]["subscriptionId"] = change.subscription_id
+    change.status = "approved"
+    change.approved_by = (request.session.get("user") or {}).get("email")
+    change.approved_at = datetime.utcnow()
+    try:
+        result = await vuzion_cloudblue_service.place_sales_order(payload)
+    except Exception as exc:
+        change.status = "order_failed"
+        db.commit()
+        raise HTTPException(502, f"CloudBlue order failed: {exc}")
+    change.order_response = json.dumps(result)
+    change.status = "submitted"
+    change.completed_at = datetime.utcnow()
+    db.commit()
+    return {"id": change.id, "status": change.status, "order": result}
 
 
 @router.put("/{customer_id}", response_model=schemas.CustomerOut)

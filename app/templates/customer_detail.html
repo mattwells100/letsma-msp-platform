@@ -55,9 +55,8 @@
         <div class="col-sm-5">
             <label class="form-label small">Licence / CloudBlue MPN</label>
             <select id="cloudBlueLicenseMpn" class="form-select form-select-sm">
-                <option value="">Loading products...</option>
+                <option value="">Loading subscribed licences...</option>
             </select>
-            <input id="cloudBlueManualMpn" class="form-control form-control-sm mt-1" placeholder="Or enter MPN manually">
         </div>
         <div class="col-sm-2">
             <label class="form-label small">Quantity</label>
@@ -65,7 +64,7 @@
         </div>
         <div class="col-sm-3">
             <label class="form-label small">Subscription ID for removal</label>
-            <input id="cloudBlueSubscriptionId" class="form-control form-control-sm" placeholder="Required for removal">
+            <input id="cloudBlueSubscriptionId" class="form-control form-control-sm" placeholder="Select a subscribed licence" readonly>
         </div>
         <div class="col-12 d-flex justify-content-end">
             <button class="btn btn-sm btn-outline-primary" type="submit" {% if not customer.cloudblue_customer_id %}disabled{% endif %}><i class="bi bi-send me-1"></i>Request change</button>
@@ -220,31 +219,44 @@
 async function loadCloudBlueLicenseProducts() {
     const select = document.getElementById('cloudBlueLicenseMpn');
     try {
-        const response = await fetch('/api/customers/cloudblue/products');
+        const response = await fetch('/api/customers/cloudblue/subscriptions/{{ customer.id }}');
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || 'Product lookup failed');
-        const products = Array.isArray(payload) ? payload : (payload.data || payload.products || []);
-        select.innerHTML = '<option value="">Select a CloudBlue product</option>';
-        products.forEach(product => {
-            const mpn = product.mpn || product.partNumber || product.code || product.id;
-            if (!mpn) return;
-            select.add(new Option(product.name ? `${product.name} (${mpn})` : mpn, mpn));
+        if (!response.ok) throw new Error(payload.detail || 'Subscription lookup failed');
+        const subscriptions = Array.isArray(payload) ? payload : (payload.data || payload.subscriptions || []);
+        select.innerHTML = '<option value="">Select a subscribed licence</option>';
+        subscriptions.forEach(subscription => {
+            const subscriptionId = subscription.id || subscription.subscriptionId;
+            const products = subscription.products || subscription.items || [subscription];
+            products.forEach(product => {
+                const mpn = product.mpn || product.partNumber || product.sku || product.skuPartNumber || product.code;
+                if (!mpn || !subscriptionId) return;
+                const label = product.name || product.productName || product.friendlyName || mpn;
+                const option = new Option(`${label} (${mpn})`, mpn);
+                option.dataset.subscriptionId = subscriptionId;
+                option.dataset.cloudblueSubscriptionId = subscriptionId;
+                select.add(option);
+            });
         });
+        if (select.options.length === 1) select.options[0].textContent = 'No active subscribed licences found';
     } catch (error) {
-        select.innerHTML = '<option value="">Product lookup unavailable - use manual MPN</option>';
+        select.innerHTML = `<option value="">${error.message}</option>`;
     }
 }
+
+document.getElementById('cloudBlueLicenseMpn').addEventListener('change', event => {
+    const option = event.target.selectedOptions[0];
+    const subscriptionId = option?.dataset.cloudblueSubscriptionId || option?.dataset.subscriptionId || '';
+    document.getElementById('cloudBlueSubscriptionId').value = subscriptionId;
+});
 
 async function requestCloudBlueLicenseChange(event) {
     event.preventDefault();
     const action = document.getElementById('cloudBlueLicenseAction').value;
-    const selectedMpn = document.getElementById('cloudBlueLicenseMpn').value;
-    const manualMpn = document.getElementById('cloudBlueManualMpn').value.trim();
+    const mpn = document.getElementById('cloudBlueLicenseMpn').value;
     const subscriptionId = document.getElementById('cloudBlueSubscriptionId').value.trim() || null;
-    const mpn = manualMpn || selectedMpn;
     const result = document.getElementById('cloudBlueLicenseResult');
-    if (!mpn) { result.innerHTML = '<span class="text-danger">Choose a product or enter an MPN.</span>'; return false; }
-    if (action === 'remove' && !subscriptionId) { result.innerHTML = '<span class="text-danger">A subscription ID is required for removal.</span>'; return false; }
+    if (!mpn) { result.innerHTML = '<span class="text-danger">Select a subscribed licence.</span>'; return false; }
+    if (!subscriptionId) { result.innerHTML = '<span class="text-danger">Select a subscribed licence first.</span>'; return false; }
     const response = await fetch('/api/customers/{{ customer.id }}/cloudblue-license-changes', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({action, mpn, quantity: Number(document.getElementById('cloudBlueLicenseQuantity').value), subscription_id: subscriptionId})
