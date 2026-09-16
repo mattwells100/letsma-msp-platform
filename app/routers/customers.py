@@ -34,12 +34,16 @@ def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
     for subscription in records:
         if not isinstance(subscription, dict):
             continue
-        subscription_id = _first_nested_value(subscription, ("id", "subscriptionId", "subscription_id"))
+        subscription_id = _first_nested_value(
+            subscription,
+            ("id", "subscriptionId", "subscription_id", "subscriptionUuid", "subscription_uuid", "subscriptionNumber"),
+        )
         product = _find_product_record(subscription)
         mpn = _first_nested_value(
             subscription,
             ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number",
-             "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code", "code"),
+             "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code",
+             "productNumber", "product_number", "itemCode", "item_code", "code"),
         )
         if not mpn or not subscription_id:
             continue
@@ -49,10 +53,20 @@ def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
 
 
 def _subscription_plan_id(subscription: dict) -> str | None:
-    return _first_nested_value(
+    plan_id = _first_nested_value(
         subscription,
-        ("planId", "plan_id", "servicePlanId", "service_plan_id", "planCode"),
+        ("planId", "plan_id", "servicePlanId", "service_plan_id", "planCode",
+         "offerId", "offer_id", "productId", "product_id", "skuId", "sku_id", "itemId", "item_id"),
     )
+    if plan_id:
+        return str(plan_id)
+    for container_name in ("plan", "servicePlan", "offer", "product", "sku", "item"):
+        container = subscription.get(container_name) if isinstance(subscription, dict) else None
+        if isinstance(container, dict):
+            nested_id = _first_nested_value(container, ("id", "planId", "plan_id", "offerId", "offer_id", "productId", "product_id"))
+            if nested_id:
+                return str(nested_id)
+    return None
 
 
 def _first_nested_value(value: object, keys: tuple[str, ...]) -> object | None:
@@ -75,7 +89,12 @@ def _first_nested_value(value: object, keys: tuple[str, ...]) -> object | None:
 
 
 def _find_product_record(subscription: dict) -> dict | None:
-    if any(key in subscription for key in ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code")):
+    product_keys = (
+        "mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number",
+        "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code",
+        "productNumber", "product_number", "itemCode", "item_code", "code",
+    )
+    if any(str(key).lower() in {item.lower() for item in product_keys} for key in subscription):
         return subscription
     for key in ("products", "items", "product", "plan", "servicePlan"):
         value = subscription.get(key)
@@ -98,7 +117,10 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
         if not isinstance(subscription, dict):
             continue
         plan_id = _subscription_plan_id(subscription)
-        subscription_id = _first_nested_value(subscription, ("id", "subscriptionId", "subscription_id"))
+        subscription_id = _first_nested_value(
+            subscription,
+            ("id", "subscriptionId", "subscription_id", "subscriptionUuid", "subscription_uuid", "subscriptionNumber"),
+        )
         if not plan_id or not subscription_id:
             continue
         try:
@@ -109,7 +131,8 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
         mpn = _first_nested_value(
             plan_payload,
             ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number",
-             "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code", "code"),
+             "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code",
+             "productNumber", "product_number", "itemCode", "item_code", "code"),
         )
         label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName")) or mpn
         if mpn:
