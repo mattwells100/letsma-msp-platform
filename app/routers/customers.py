@@ -27,9 +27,7 @@ class CloudBlueLicenseChangeRequest(BaseModel):
 
 
 def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
-    records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("subscriptions") or [])
-    if isinstance(records, dict):
-        records = records.get("items") or records.get("results") or records.get("subscriptions") or []
+    records = _cloudblue_collection(payload)
     normalised = []
     for subscription in records:
         if not isinstance(subscription, dict):
@@ -106,9 +104,7 @@ def _find_product_record(subscription: dict) -> dict | None:
 
 
 async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[dict], int]:
-    records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("subscriptions") or [])
-    if isinstance(records, dict):
-        records = records.get("items") or records.get("results") or records.get("subscriptions") or []
+    records = _cloudblue_collection(payload)
     normalised = _normalise_cloudblue_subscriptions(payload)
     if normalised or not isinstance(records, list):
         return normalised, len(records) if isinstance(records, list) else 0
@@ -149,9 +145,7 @@ async def _find_catalogue_product(plan_id: str, subscription: dict) -> tuple[obj
         payload = await vuzion_cloudblue_service.get_products()
     except Exception:
         return None, None
-    records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("products") or payload.get("items") or [])
-    if isinstance(records, dict):
-        records = records.get("items") or records.get("results") or records.get("products") or []
+    records = _cloudblue_collection(payload)
     if not isinstance(records, list):
         return None, None
     identifiers = {str(plan_id).lower()}
@@ -169,6 +163,19 @@ async def _find_catalogue_product(plan_id: str, subscription: dict) -> tuple[obj
         label = _first_nested_value(product, ("name", "productName", "friendlyName", "planName"))
         return mpn, label
     return None, None
+
+
+def _cloudblue_collection(payload: object) -> list:
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    for key, value in payload.items():
+        if str(key).lower() in {"data", "items", "results", "subscriptions", "products", "records"}:
+            records = _cloudblue_collection(value)
+            if records:
+                return records
+    return []
 
 
 @router.get("/cloudblue")
