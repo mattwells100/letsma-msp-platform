@@ -133,7 +133,20 @@ async def get_subscriptions(cloudblue_customer_id: str) -> dict:
         params={"customerId": cloudblue_customer_id, "status": "active"},
     )
     response.raise_for_status()
-    return response.json()
+    payload = response.json()
+    records = payload.get("data", []) if isinstance(payload, dict) else payload
+    if records:
+        return payload
+
+    # Some Marketplace accounts use a different status spelling. Retry without
+    # the status filter and let the normalizer expose the returned subscriptions.
+    fallback = await _authorized_request(
+        "GET",
+        "/subscriptions",
+        params={"customerId": cloudblue_customer_id},
+    )
+    fallback.raise_for_status()
+    return fallback.json()
 
 
 async def place_sales_order(payload: dict) -> dict:

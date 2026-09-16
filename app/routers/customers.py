@@ -26,6 +26,51 @@ class CloudBlueLicenseChangeRequest(BaseModel):
     ticket_id: str | None = None
 
 
+def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
+    records = payload if isinstance(payload, list) else (payload.get("data") or payload.get("subscriptions") or [])
+    normalised = []
+    for subscription in records:
+        if not isinstance(subscription, dict):
+            continue
+        subscription_id = _first_nested_value(subscription, ("id", "subscriptionId", "subscription_id"))
+        product = _find_product_record(subscription)
+        mpn = _first_nested_value(product or subscription, ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code"))
+        if not mpn or not subscription_id:
+            continue
+        label = _first_nested_value(product or subscription, ("name", "productName", "friendlyName", "planName")) or mpn
+        normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label)})
+    return normalised
+
+
+def _first_nested_value(value: object, keys: tuple[str, ...]) -> object | None:
+    if isinstance(value, dict):
+        for key in keys:
+            if value.get(key) not in (None, ""):
+                return value[key]
+        for child in value.values():
+            found = _first_nested_value(child, keys)
+            if found not in (None, ""):
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _first_nested_value(child, keys)
+            if found not in (None, ""):
+                return found
+    return None
+
+
+def _find_product_record(subscription: dict) -> dict | None:
+    if any(key in subscription for key in ("mpn", "partNumber", "sku", "skuPartNumber", "productMpn", "code")):
+        return subscription
+    for key in ("products", "items", "product", "plan", "servicePlan"):
+        value = subscription.get(key)
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            return value[0]
+    return None
+
+
 @router.get("/cloudblue")
 async def list_cloudblue_customers():
     """Return CloudBlue customers available to link to local records."""
@@ -55,7 +100,8 @@ async def list_cloudblue_subscriptions(customer_id: str, db: Session = Depends(g
     if not customer.cloudblue_customer_id:
         raise HTTPException(409, "Customer is not linked to CloudBlue")
     try:
-        return await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
+        payload = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
+        return {"data": _normalise_cloudblue_subscriptions(payload)}
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
 
@@ -121,18 +167,13 @@ async def request_cloudblue_license_change(
         subscriptions = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
-    records = subscriptions if isinstance(subscriptions, list) else subscriptions.get("data", [])
+    records = _normalise_cloudblue_subscriptions(subscriptions)
     valid_selection = False
     for subscription in records:
-        subscription_id = str(subscription.get("id") or subscription.get("subscriptionId") or "")
+        subscription_id = str(subscription.get("id") or "")
         if subscription_id != payload.subscription_id:
             continue
-        products = subscription.get("products") or subscription.get("items") or [subscription]
-        valid_selection = any(
-            str(product.get("mpn") or product.get("partNumber") or product.get("sku") or product.get("skuPartNumber") or "")
-            == payload.mpn.strip()
-            for product in products
-        )
+        valid_selection = subscription.get("mpn") == payload.mpn.strip()
         break
     if not valid_selection:
         raise HTTPException(400, "Selected licence is not on this customer's active CloudBlue subscription")
