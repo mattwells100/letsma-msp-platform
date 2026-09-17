@@ -377,7 +377,8 @@ async def estimate_cloudblue_license_change(customer_id: str, change_id: str, db
     except Exception as exc:
         change.status = "estimate_failed"
         db.commit()
-        raise HTTPException(502, f"CloudBlue estimate failed: {exc}")
+        detail = str(exc).strip() or f"{type(exc).__name__} (no response details)"
+        raise HTTPException(502, f"CloudBlue estimate failed: {detail}")
     change.estimate_response = json.dumps(result)
     change.status = "estimated"
     db.commit()
