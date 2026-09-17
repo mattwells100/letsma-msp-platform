@@ -67,9 +67,10 @@ async def _authorized_request(
     json: dict | None = None,
     params: dict | None = None,
     require_provisioning: bool = False,
+    timeout: float = 15.0,
 ) -> httpx.Response:
     _require_configuration(require_provisioning=require_provisioning)
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         token = await _get_access_token(client)
         return await client.request(
             method,
@@ -179,6 +180,6 @@ async def place_sales_order(payload: dict) -> dict:
 
 async def estimate_sales_order(payload: dict) -> dict:
     """Estimate a licence change without placing an order."""
-    response = await _authorized_request("POST", "/orders/estimate", json=payload)
+    response = await _authorized_request("POST", "/orders/estimate", json=payload, timeout=60.0)
     _raise_for_status_with_body(response)
     return response.json()
