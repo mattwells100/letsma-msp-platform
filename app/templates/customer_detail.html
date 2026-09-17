@@ -257,20 +257,30 @@ document.getElementById('cloudBlueLicenseMpn').addEventListener('change', event 
 
 async function requestCloudBlueLicenseChange(event) {
     event.preventDefault();
+    const button = event.target.querySelector('button[type="submit"]');
     const action = document.getElementById('cloudBlueLicenseAction').value;
     const mpn = document.getElementById('cloudBlueLicenseMpn').value;
     const subscriptionId = document.getElementById('cloudBlueSubscriptionId').value.trim() || null;
     const result = document.getElementById('cloudBlueLicenseResult');
     if (!mpn) { result.innerHTML = '<span class="text-danger">Select a subscribed licence.</span>'; return false; }
     if (!subscriptionId) { result.innerHTML = '<span class="text-danger">Select a subscribed licence first.</span>'; return false; }
-    const response = await fetch('/api/customers/{{ customer.id }}/cloudblue-license-changes', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({action, mpn, quantity: Number(document.getElementById('cloudBlueLicenseQuantity').value), subscription_id: subscriptionId})
-    });
-    const data = await response.json();
-    if (!response.ok) { result.innerHTML = `<span class="text-danger">${data.detail || 'Request failed'}</span>`; return false; }
-    result.innerHTML = `<span class="text-muted">Request ${data.id} created. Calculating estimate...</span>`;
-    await estimateCloudBlueLicenseChange(data.id);
+    button.disabled = true;
+    button.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Requesting...';
+    try {
+        const response = await fetch('/api/customers/{{ customer.id }}/cloudblue-license-changes', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action, mpn, quantity: Number(document.getElementById('cloudBlueLicenseQuantity').value), subscription_id: subscriptionId})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Request failed');
+        result.innerHTML = `<span class="text-muted">Request ${data.id} created. Calculating estimate...</span>`;
+        await estimateCloudBlueLicenseChange(data.id);
+    } catch (error) {
+        result.innerHTML = `<span class="text-danger">${error.message || 'Request failed'}</span>`;
+    } finally {
+        button.disabled = false;
+        button.innerHTML = '<i class="bi bi-send me-1"></i>Request change';
+    }
     return false;
 }
 
