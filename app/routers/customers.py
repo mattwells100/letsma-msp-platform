@@ -338,18 +338,22 @@ async def request_cloudblue_license_change(
     if not valid_selection:
         raise HTTPException(400, "Selected licence is not on this customer's active CloudBlue subscription")
 
-    change = models.CloudBlueLicenseChange(
-        customer_id=customer_id,
-        ticket_id=payload.ticket_id,
-        action=payload.action,
-        mpn=payload.mpn.strip(),
-        quantity=payload.quantity,
-        subscription_id=payload.subscription_id,
-        requested_by=(request.session.get("user") or {}).get("email"),
-    )
-    db.add(change)
-    db.commit()
-    db.refresh(change)
+    try:
+        change = models.CloudBlueLicenseChange(
+            customer_id=customer_id,
+            ticket_id=payload.ticket_id,
+            action=payload.action,
+            mpn=payload.mpn.strip(),
+            quantity=payload.quantity,
+            subscription_id=payload.subscription_id,
+            requested_by=(request.session.get("user") or {}).get("email"),
+        )
+        db.add(change)
+        db.commit()
+        db.refresh(change)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(500, f"Unable to save CloudBlue licence change: {exc}")
     return {"id": change.id, "status": change.status, "customer_id": customer_id}
 
 
