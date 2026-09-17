@@ -237,7 +237,7 @@ async function loadCloudBlueLicenseProducts() {
         if (select.options.length === 1) {
             const rawCount = Number(payload.raw_count || 0);
             select.options[0].textContent = rawCount
-                ? `CloudBlue returned ${rawCount} subscription(s), but no licence MPN was found`
+                ? `CloudBlue returned ${rawCount} subscription(s), but no licence MPN was found${payload.unresolved_fields?.length ? ` [fields: ${payload.unresolved_fields.join(', ')}]` : ''}`
                 : 'No active subscribed licences found';
         }
     } catch (error) {

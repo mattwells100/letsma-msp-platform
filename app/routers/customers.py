@@ -140,6 +140,23 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
     return normalised, len(records)
 
 
+def _subscription_field_names(records: list) -> list[str]:
+    names = set()
+
+    def collect(value: object, prefix: str = "") -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                path = f"{prefix}.{key}" if prefix else str(key)
+                names.add(path)
+                collect(child, path)
+        elif isinstance(value, list):
+            for child in value[:3]:
+                collect(child, prefix + "[]")
+
+    collect(records)
+    return sorted(names)[:100]
+
+
 async def _find_catalogue_product(plan_id: str, subscription: dict) -> tuple[object | None, object | None]:
     try:
         payload = await vuzion_cloudblue_service.get_products()
@@ -208,8 +225,12 @@ async def list_cloudblue_subscriptions(customer_id: str, db: Session = Depends(g
         raise HTTPException(409, "Customer is not linked to CloudBlue")
     try:
         payload = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
+        raw_records = _cloudblue_collection(payload)
         normalised, raw_count = await _normalise_customer_subscriptions(payload)
-        return {"data": normalised, "raw_count": raw_count}
+        response = {"data": normalised, "raw_count": raw_count}
+        if raw_count and not normalised:
+            response["unresolved_fields"] = _subscription_field_names(raw_records)
+        return response
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
 
