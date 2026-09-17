@@ -44,6 +44,16 @@
         {% if customer.cloudblue_customer_id %}<span class="badge bg-light text-dark border">CloudBlue linked</span>{% else %}<span class="badge bg-warning text-dark">CloudBlue not linked</span>{% endif %}
     </div>
     <div id="cloudBlueLicenseResult" class="small mt-3"></div>
+    <div class="row g-2 mt-1 mb-2">
+        <div class="col-md-9">
+            <label class="form-label small">Subscription name to MPN mapping</label>
+            <textarea id="cloudBlueMpnMapping" class="form-control form-control-sm" rows="2" placeholder="Microsoft 365 Business Premium=CFQ7TTC0LH18">{{ customer.cloudblue_mpn_mapping or '' }}</textarea>
+            <div class="form-text">Enter one exact subscription name and MPN per line.</div>
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+            <button class="btn btn-sm btn-outline-secondary w-100" type="button" onclick="saveCloudBlueMpnMapping()"><i class="bi bi-save me-1"></i>Save MPN mapping</button>
+        </div>
+    </div>
     <form class="row g-2 mt-1" onsubmit="return requestCloudBlueLicenseChange(event)">
         <div class="col-sm-2">
             <label class="form-label small">Action</label>
@@ -246,6 +256,24 @@ async function loadCloudBlueLicenseProducts() {
         select.innerHTML = `<option value="">${error.name === 'AbortError' ? 'Subscription lookup timed out' : error.message}</option>`;
     } finally {
         clearTimeout(timeout);
+    }
+}
+
+async function saveCloudBlueMpnMapping() {
+    const result = document.getElementById('cloudBlueLicenseResult');
+    const mapping = document.getElementById('cloudBlueMpnMapping').value;
+    try {
+        const response = await fetch('/api/customers/{{ customer.id }}/cloudblue-mpn-mapping', {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mapping})
+        });
+        const data = await readCloudBlueResponse(response);
+        if (!response.ok) throw new Error(data.detail || data.text || 'Unable to save MPN mapping');
+        result.innerHTML = '<span class="text-success">MPN mapping saved. Reloading subscriptions...</span>';
+        await loadCloudBlueLicenseProducts();
+    } catch (error) {
+        result.innerHTML = `<span class="text-danger">${error.message || 'Unable to save MPN mapping'}</span>`;
     }
 }
 

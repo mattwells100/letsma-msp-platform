@@ -18,6 +18,10 @@ class CloudBlueCustomerLink(BaseModel):
     cloudblue_customer_id: str
 
 
+class CloudBlueMpnMappingRequest(BaseModel):
+    mapping: str = ""
+
+
 class CloudBlueLicenseChangeRequest(BaseModel):
     action: str
     mpn: str
@@ -330,6 +334,23 @@ def link_cloudblue_customer(
     db.commit()
     db.refresh(customer)
     return customer
+
+
+@router.patch("/{customer_id}/cloudblue-mpn-mapping")
+def save_cloudblue_mpn_mapping(
+    customer_id: str,
+    payload: CloudBlueMpnMappingRequest,
+    db: Session = Depends(get_db),
+):
+    customer = db.query(models.Customer).get(customer_id)
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    lines = [line.strip() for line in payload.mapping.splitlines() if line.strip()]
+    if any("=" not in line or not _is_product_code(line.split("=", 1)[1].strip()) for line in lines):
+        raise HTTPException(400, "Each mapping must use Subscription name=CloudBlue MPN")
+    customer.cloudblue_mpn_mapping = "\n".join(lines) or None
+    db.commit()
+    return {"ok": True, "mapping": customer.cloudblue_mpn_mapping or ""}
 
 
 @router.post("/{customer_id}/cloudblue-license-changes")
