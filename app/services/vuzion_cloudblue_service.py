@@ -6,6 +6,8 @@ provisioning is enabled.
 """
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 from app.config import settings
@@ -180,6 +182,16 @@ async def place_sales_order(payload: dict) -> dict:
 
 async def estimate_sales_order(payload: dict) -> dict:
     """Estimate a licence change without placing an order."""
-    response = await _authorized_request("POST", "/orders/estimate", json=payload, timeout=105.0)
-    _raise_for_status_with_body(response)
-    return response.json()
+    for attempt in range(2):
+        response = await _authorized_request("POST", "/orders/estimate", json=payload, timeout=105.0)
+        if (
+            attempt == 0
+            and response.status_code == 500
+            and "failed to retrieve products from cache" in response.text.lower()
+        ):
+            await asyncio.sleep(1)
+            continue
+        _raise_for_status_with_body(response)
+        return response.json()
+
+    raise RuntimeError("CloudBlue estimate failed after retry")
