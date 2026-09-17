@@ -190,7 +190,8 @@ def _mapped_mpn(subscription: dict, mapping: str | None) -> str | None:
         if "=" not in line:
             continue
         source, mpn = line.split("=", 1)
-        if _normalise_text(source) == target and _is_product_code(mpn.strip()):
+        source_normalised = _normalise_text(source)
+        if (source_normalised == target or source_normalised in target or target in source_normalised) and _is_product_code(mpn.strip()):
             return mpn.strip()
     return None
 
@@ -236,7 +237,7 @@ def _find_catalogue_match(value: object, identifiers: set[str], subscription_nam
 
 
 def _normalise_text(value: object) -> str:
-    return " ".join(str(value).casefold().split())
+    return " ".join("".join(character if character.isalnum() else " " for character in str(value).casefold()).split())
 
 
 def _is_product_code(value: object) -> bool:
