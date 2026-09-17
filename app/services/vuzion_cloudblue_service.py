@@ -15,6 +15,15 @@ class VuzionCloudBlueNotConfigured(RuntimeError):
     pass
 
 
+def _raise_for_status_with_body(response: httpx.Response) -> None:
+    if response.is_success:
+        return
+    detail = response.text.strip()
+    if len(detail) > 1000:
+        detail = detail[:1000] + "..."
+    raise RuntimeError(f"CloudBlue API returned HTTP {response.status_code}: {detail or 'no response body'}")
+
+
 def _require_configuration(*, require_provisioning: bool = False) -> None:
     if require_provisioning and not settings.VUZION_CLOUDBLUE_ENABLED:
         raise VuzionCloudBlueNotConfigured("Vuzion CloudBlue provisioning is disabled")
@@ -164,12 +173,12 @@ async def place_sales_order(payload: dict) -> dict:
         json=payload,
         require_provisioning=True,
     )
-    response.raise_for_status()
+    _raise_for_status_with_body(response)
     return response.json()
 
 
 async def estimate_sales_order(payload: dict) -> dict:
     """Estimate a licence change without placing an order."""
     response = await _authorized_request("POST", "/orders/estimate", json=payload)
-    response.raise_for_status()
+    _raise_for_status_with_body(response)
     return response.json()
