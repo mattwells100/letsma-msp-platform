@@ -174,18 +174,33 @@ async def _find_catalogue_product(plan_id: str, subscription: dict) -> tuple[obj
         if value not in (None, ""):
             identifiers.add(str(value).lower())
     for product in records:
-        if not isinstance(product, dict):
-            continue
-        product_id = _first_nested_value(product, ("id", "offerId", "offer_id", "productId", "product_id", "skuId", "sku_id", "itemId", "item_id"))
-        product_name = _first_nested_value(product, ("name", "productName", "friendlyName", "planName"))
+        match = _find_catalogue_match(product, identifiers, subscription_name)
+        if match:
+            return match
+    return None, None
+
+
+def _find_catalogue_match(value: object, identifiers: set[str], subscription_name: object) -> tuple[object, object] | None:
+    if isinstance(value, dict):
+        product_id = _first_nested_value(value, ("id", "offerId", "offer_id", "productId", "product_id", "skuId", "sku_id", "itemId", "item_id"))
+        product_name = _first_nested_value(value, ("name", "productName", "friendlyName", "planName"))
         same_id = product_id is not None and str(product_id).lower() in identifiers
         same_name = subscription_name and product_name and _normalise_text(subscription_name) == _normalise_text(product_name)
-        if not same_id and not same_name:
-            continue
-        mpn = _first_nested_value(product, ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number", "productCode", "product_code", "offerCode", "offer_code", "productNumber", "product_number", "itemCode", "item_code", "code"))
-        label = _first_nested_value(product, ("name", "productName", "friendlyName", "planName"))
-        return mpn, label
-    return None, None
+        if same_id or same_name:
+            mpn = _first_nested_value(value, ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number", "productCode", "product_code", "offerCode", "offer_code", "productNumber", "product_number", "itemCode", "item_code"))
+            label = product_name or subscription_name
+            if mpn:
+                return mpn, label
+        for child in value.values():
+            match = _find_catalogue_match(child, identifiers, subscription_name)
+            if match:
+                return match
+    elif isinstance(value, list):
+        for child in value:
+            match = _find_catalogue_match(child, identifiers, subscription_name)
+            if match:
+                return match
+    return None
 
 
 def _normalise_text(value: object) -> str:
