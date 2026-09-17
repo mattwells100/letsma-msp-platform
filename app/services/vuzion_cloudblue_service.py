@@ -180,6 +180,6 @@ async def place_sales_order(payload: dict) -> dict:
 
 async def estimate_sales_order(payload: dict) -> dict:
     """Estimate a licence change without placing an order."""
-    response = await _authorized_request("POST", "/orders/estimate", json=payload, timeout=60.0)
+    response = await _authorized_request("POST", "/orders/estimate", json=payload, timeout=105.0)
     _raise_for_status_with_body(response)
     return response.json()

@@ -432,7 +432,7 @@ async def estimate_cloudblue_license_change(customer_id: str, change_id: str, db
     change = db.query(models.CloudBlueLicenseChange).filter_by(id=change_id, customer_id=customer_id).first()
     if not change:
         raise HTTPException(404, "Licence change not found")
-    if change.status not in {"pending_approval", "estimated"}:
+    if change.status not in {"pending_approval", "estimated", "estimate_failed"}:
         raise HTTPException(409, "Only pending changes can be estimated")
     payload = {
         "customerId": change.customer.cloudblue_customer_id,
