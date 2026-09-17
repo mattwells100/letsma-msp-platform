@@ -115,6 +115,7 @@ class Customer(Base):
     endpoints = relationship("Endpoint", back_populates="customer", cascade="all, delete-orphan")
     time_entries = relationship("TimeEntry", back_populates="customer", cascade="all, delete-orphan")
     amazon_orders = relationship("AmazonOrder", back_populates="customer")
+    cloudblue_license_changes = relationship("CloudBlueLicenseChange", back_populates="customer", cascade="all, delete-orphan")
 
 
 class Contact(Base):
@@ -533,6 +534,31 @@ class TenantLicenseSummary(Base):
     enabled_units = Column(Integer, default=0)
     consumed_units = Column(Integer, default=0)
     last_synced = Column(DateTime, default=datetime.utcnow)
+
+
+class CloudBlueLicenseChange(Base):
+    """Approval record for a CloudBlue licence add/remove order."""
+    __tablename__ = "cloudblue_license_changes"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=False)
+    ticket_id = Column(String, ForeignKey("tickets.id"), nullable=True)
+    action = Column(String, nullable=False)  # add | remove
+    mpn = Column(String, nullable=False)
+    quantity = Column(Integer, nullable=False, default=1)
+    subscription_id = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="pending_approval")
+    estimate_payload = Column(Text, nullable=True)
+    estimate_response = Column(Text, nullable=True)
+    order_response = Column(Text, nullable=True)
+    requested_by = Column(String, nullable=True)
+    approved_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    approved_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    customer = relationship("Customer", back_populates="cloudblue_license_changes")
+    ticket = relationship("Ticket")
 
 
 # ---------------------------------------------------------------------------
