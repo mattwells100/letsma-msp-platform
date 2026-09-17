@@ -48,7 +48,7 @@
         <div class="col-md-9">
             <label class="form-label small">Subscription name to MPN mapping</label>
             <textarea id="cloudBlueMpnMapping" class="form-control form-control-sm" rows="2" placeholder="Microsoft 365 Business Premium=CFQ7TTC0LH18">{{ customer.cloudblue_mpn_mapping or '' }}</textarea>
-            <div class="form-text">Enter one exact subscription name and MPN per line.</div>
+            <div class="form-text">Enter one subscription name and MPN per line, or use <code>*=MPN</code> for all subscriptions.</div>
         </div>
         <div class="col-md-3 d-flex align-items-end">
             <button class="btn btn-sm btn-outline-secondary w-100" type="button" onclick="saveCloudBlueMpnMapping()"><i class="bi bi-save me-1"></i>Save MPN mapping</button>
@@ -249,7 +249,7 @@ async function loadCloudBlueLicenseProducts() {
         if (select.options.length === 1) {
             const rawCount = Number(payload.raw_count || 0);
             select.options[0].textContent = rawCount
-                ? `CloudBlue returned ${rawCount} subscription(s), but no licence MPN was found${payload.unresolved_fields?.length ? ` [fields: ${payload.unresolved_fields.join(', ')}]` : ''}`
+                ? `CloudBlue returned ${rawCount} subscription(s), but no licence MPN was found${payload.subscription_names?.length ? ` [names: ${payload.subscription_names.join(' | ')}]` : ''}`
                 : 'No active subscribed licences found';
         }
     } catch (error) {

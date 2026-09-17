@@ -179,6 +179,17 @@ def _subscription_field_names(records: list) -> list[str]:
     return sorted(names)[:100]
 
 
+def _subscription_names(records: list) -> list[str]:
+    names = []
+    for subscription in records:
+        if not isinstance(subscription, dict):
+            continue
+        name = _first_nested_value(subscription, ("name", "productName", "friendlyName", "planName"))
+        if name and str(name) not in names:
+            names.append(str(name))
+    return names[:20]
+
+
 def _mapped_mpn(subscription: dict, mapping: str | None) -> str | None:
     if not mapping:
         return None
@@ -186,14 +197,17 @@ def _mapped_mpn(subscription: dict, mapping: str | None) -> str | None:
     if not name:
         return None
     target = _normalise_text(name)
+    wildcard_mpn = None
     for line in mapping.splitlines():
         if "=" not in line:
             continue
         source, mpn = line.split("=", 1)
         source_normalised = _normalise_text(source)
+        if source_normalised in {"*", "all", "default"} and _is_product_code(mpn.strip()):
+            wildcard_mpn = mpn.strip()
         if (source_normalised == target or source_normalised in target or target in source_normalised) and _is_product_code(mpn.strip()):
             return mpn.strip()
-    return None
+    return wildcard_mpn
 
 
 def _find_catalogue_product(plan_id: str, subscription: dict, payload: object) -> tuple[object | None, object | None]:
@@ -293,6 +307,7 @@ async def list_cloudblue_subscriptions(customer_id: str, db: Session = Depends(g
         response = {"data": normalised, "raw_count": raw_count}
         if raw_count and not normalised:
             response["unresolved_fields"] = _subscription_field_names(raw_records)
+            response["subscription_names"] = _subscription_names(raw_records)
         return response
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
