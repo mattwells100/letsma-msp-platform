@@ -117,12 +117,14 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
             subscription,
             ("id", "subscriptionId", "subscription_id", "subscriptionUuid", "subscription_uuid", "subscriptionNumber"),
         )
-        if not plan_id or not subscription_id:
+        if not subscription_id:
             continue
-        try:
-            plan = await vuzion_cloudblue_service.get_service_plan(str(plan_id))
-        except Exception:
-            plan = None
+        plan = None
+        if plan_id:
+            try:
+                plan = await vuzion_cloudblue_service.get_service_plan(str(plan_id))
+            except Exception:
+                pass
         plan_payload = plan.get("data") if isinstance(plan, dict) and isinstance(plan.get("data"), dict) else plan
         mpn = _first_nested_value(
             plan_payload,
@@ -165,7 +167,8 @@ async def _find_catalogue_product(plan_id: str, subscription: dict) -> tuple[obj
     records = _cloudblue_collection(payload)
     if not isinstance(records, list):
         return None, None
-    identifiers = {str(plan_id).lower()}
+    identifiers = {str(plan_id).lower()} if plan_id else set()
+    subscription_name = _first_nested_value(subscription, ("name", "productName", "friendlyName", "planName"))
     for key in ("offerId", "offer_id", "productId", "product_id", "skuId", "sku_id", "itemId", "item_id"):
         value = _first_nested_value(subscription, (key,))
         if value not in (None, ""):
@@ -174,12 +177,19 @@ async def _find_catalogue_product(plan_id: str, subscription: dict) -> tuple[obj
         if not isinstance(product, dict):
             continue
         product_id = _first_nested_value(product, ("id", "offerId", "offer_id", "productId", "product_id", "skuId", "sku_id", "itemId", "item_id"))
-        if product_id is None or str(product_id).lower() not in identifiers:
+        product_name = _first_nested_value(product, ("name", "productName", "friendlyName", "planName"))
+        same_id = product_id is not None and str(product_id).lower() in identifiers
+        same_name = subscription_name and product_name and _normalise_text(subscription_name) == _normalise_text(product_name)
+        if not same_id and not same_name:
             continue
         mpn = _first_nested_value(product, ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number", "productCode", "product_code", "offerCode", "offer_code", "productNumber", "product_number", "itemCode", "item_code", "code"))
         label = _first_nested_value(product, ("name", "productName", "friendlyName", "planName"))
         return mpn, label
     return None, None
+
+
+def _normalise_text(value: object) -> str:
+    return " ".join(str(value).casefold().split())
 
 
 def _cloudblue_collection(payload: object) -> list:
