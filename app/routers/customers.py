@@ -213,6 +213,11 @@ def _normalise_text(value: object) -> str:
     return " ".join(str(value).casefold().split())
 
 
+def _is_product_code(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(text) and " " not in text and len(text) <= 128
+
+
 def _cloudblue_collection(payload: object) -> list:
     if isinstance(payload, list):
         return payload
@@ -323,6 +328,12 @@ async def request_cloudblue_license_change(
         raise HTTPException(400, "Quantity must be at least 1")
     if not payload.subscription_id:
         raise HTTPException(400, "Select a subscribed licence first")
+    if not _is_product_code(payload.mpn):
+        raise HTTPException(
+            409,
+            "CloudBlue returned the subscription name but no product MPN. "
+            "Configure the product MPN mapping before requesting a change.",
+        )
     try:
         subscriptions = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
     except Exception as exc:
