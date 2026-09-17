@@ -110,12 +110,7 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
         return normalised, len(records) if isinstance(records, list) else 0
 
     catalogue_payload = None
-    if any(isinstance(subscription, dict) and not _first_nested_value(
-        subscription,
-        ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number",
-         "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code",
-         "productNumber", "product_number", "itemCode", "item_code"),
-    ) for subscription in records):
+    if any(isinstance(subscription, dict) and _subscription_plan_id(subscription) for subscription in records):
         try:
             catalogue_payload = await vuzion_cloudblue_service.get_products()
         except Exception:
@@ -125,6 +120,7 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
         if not isinstance(subscription, dict):
             continue
         plan_id = _subscription_plan_id(subscription)
+        subscription_name = _first_nested_value(subscription, ("name", "productName", "friendlyName", "planName"))
         subscription_id = _first_nested_value(
             subscription,
             ("id", "subscriptionId", "subscription_id", "subscriptionUuid", "subscription_uuid", "subscriptionNumber"),
@@ -144,13 +140,15 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
              "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code",
              "productNumber", "product_number", "itemCode", "item_code", "code"),
         )
-        if not mpn:
+        if not mpn and catalogue_payload is not None:
             mpn, label = _find_catalogue_product(plan_id, subscription, catalogue_payload)
         else:
             label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName"))
         label = label or mpn
         if mpn:
             normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label or mpn)})
+        elif subscription_name:
+            normalised.append({"id": str(subscription_id), "mpn": str(subscription_name), "label": str(subscription_name)})
     return normalised, len(records)
 
 

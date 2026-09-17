@@ -60,7 +60,7 @@ async def _authorized_request(
     require_provisioning: bool = False,
 ) -> httpx.Response:
     _require_configuration(require_provisioning=require_provisioning)
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         token = await _get_access_token(client)
         return await client.request(
             method,
