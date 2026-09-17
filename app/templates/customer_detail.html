@@ -218,8 +218,10 @@
 <script>
 async function loadCloudBlueLicenseProducts() {
     const select = document.getElementById('cloudBlueLicenseMpn');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
     try {
-        const response = await fetch('/api/customers/cloudblue/subscriptions/{{ customer.id }}');
+        const response = await fetch('/api/customers/cloudblue/subscriptions/{{ customer.id }}', {signal: controller.signal});
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || 'Subscription lookup failed');
         const subscriptions = Array.isArray(payload) ? payload : (payload.data || payload.subscriptions || []);
@@ -241,7 +243,9 @@ async function loadCloudBlueLicenseProducts() {
                 : 'No active subscribed licences found';
         }
     } catch (error) {
-        select.innerHTML = `<option value="">${error.message}</option>`;
+        select.innerHTML = `<option value="">${error.name === 'AbortError' ? 'Subscription lookup timed out' : error.message}</option>`;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 

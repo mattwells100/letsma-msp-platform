@@ -109,6 +109,18 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
     if normalised or not isinstance(records, list):
         return normalised, len(records) if isinstance(records, list) else 0
 
+    catalogue_payload = None
+    if any(isinstance(subscription, dict) and not _first_nested_value(
+        subscription,
+        ("mpn", "partNumber", "part_number", "sku", "skuPartNumber", "sku_part_number",
+         "productMpn", "product_mpn", "productCode", "product_code", "offerCode", "offer_code",
+         "productNumber", "product_number", "itemCode", "item_code"),
+    ) for subscription in records):
+        try:
+            catalogue_payload = await vuzion_cloudblue_service.get_products()
+        except Exception:
+            catalogue_payload = None
+
     for subscription in records:
         if not isinstance(subscription, dict):
             continue
@@ -133,7 +145,7 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
              "productNumber", "product_number", "itemCode", "item_code", "code"),
         )
         if not mpn:
-            mpn, label = await _find_catalogue_product(plan_id, subscription)
+            mpn, label = _find_catalogue_product(plan_id, subscription, catalogue_payload)
         else:
             label = _first_nested_value(plan_payload, ("name", "productName", "friendlyName", "planName"))
         label = label or mpn
@@ -159,11 +171,7 @@ def _subscription_field_names(records: list) -> list[str]:
     return sorted(names)[:100]
 
 
-async def _find_catalogue_product(plan_id: str, subscription: dict) -> tuple[object | None, object | None]:
-    try:
-        payload = await vuzion_cloudblue_service.get_products()
-    except Exception:
-        return None, None
+def _find_catalogue_product(plan_id: str, subscription: dict, payload: object) -> tuple[object | None, object | None]:
     records = _cloudblue_collection(payload)
     if not isinstance(records, list):
         return None, None
