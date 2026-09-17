@@ -271,8 +271,8 @@ async function requestCloudBlueLicenseChange(event) {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action, mpn, quantity: Number(document.getElementById('cloudBlueLicenseQuantity').value), subscription_id: subscriptionId})
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Request failed');
+        const data = await readCloudBlueResponse(response);
+        if (!response.ok) throw new Error(data.detail || data.text || 'Request failed');
         result.innerHTML = `<span class="text-muted">Request ${data.id} created. Calculating estimate...</span>`;
         await estimateCloudBlueLicenseChange(data.id);
     } catch (error) {
@@ -287,19 +287,32 @@ async function requestCloudBlueLicenseChange(event) {
 async function estimateCloudBlueLicenseChange(changeId) {
     const result = document.getElementById('cloudBlueLicenseResult');
     const response = await fetch(`/api/customers/{{ customer.id }}/cloudblue-license-changes/${changeId}/estimate`, {method: 'POST'});
-    const data = await response.json();
-    if (!response.ok) { result.innerHTML = `<span class="text-danger">Estimate failed: ${data.detail || 'unknown error'}</span>`; return; }
+    const data = await readCloudBlueResponse(response);
+    if (!response.ok) { result.innerHTML = `<span class="text-danger">Estimate failed: ${data.detail || data.text || 'unknown error'}</span>`; return; }
     result.innerHTML = `<span class="text-success">Estimate ready for request ${changeId}.</span> <button class="btn btn-sm btn-warning ms-2" onclick="approveCloudBlueLicenseChange('${changeId}')">Approve and submit order</button>`;
+}
+
+async function readCloudBlueResponse(response) {
+    const text = await response.text();
+    try {
+        return text ? JSON.parse(text) : {};
+    } catch (_) {
+        return {text: text.slice(0, 500)};
+    }
 }
 
 async function approveCloudBlueLicenseChange(changeId) {
     if (!confirm('Submit this CloudBlue licence order?')) return;
     const result = document.getElementById('cloudBlueLicenseResult');
-    const response = await fetch(`/api/customers/{{ customer.id }}/cloudblue-license-changes/${changeId}/approve`, {method: 'POST'});
-    const data = await response.json();
-    result.innerHTML = response.ok
-        ? `<span class="text-success">CloudBlue order submitted for request ${changeId}.</span>`
-        : `<span class="text-danger">Approval failed: ${data.detail || 'unknown error'}</span>`;
+    try {
+        const response = await fetch(`/api/customers/{{ customer.id }}/cloudblue-license-changes/${changeId}/approve`, {method: 'POST'});
+        const data = await readCloudBlueResponse(response);
+        result.innerHTML = response.ok
+            ? `<span class="text-success">CloudBlue order submitted for request ${changeId}.</span>`
+            : `<span class="text-danger">Approval failed: ${data.detail || data.text || 'unknown error'}</span>`;
+    } catch (error) {
+        result.innerHTML = `<span class="text-danger">Approval failed: ${error.message || 'unknown error'}</span>`;
+    }
 }
 
 loadCloudBlueLicenseProducts();
