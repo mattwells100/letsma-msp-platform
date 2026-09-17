@@ -26,7 +26,7 @@ class CloudBlueLicenseChangeRequest(BaseModel):
     ticket_id: str | None = None
 
 
-def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
+def _normalise_cloudblue_subscriptions(payload: dict | list, mpn_mapping: str | None = None) -> list[dict]:
     records = _cloudblue_collection(payload)
     normalised = []
     for subscription in records:
@@ -44,6 +44,10 @@ def _normalise_cloudblue_subscriptions(payload: dict | list) -> list[dict]:
              "productNumber", "product_number", "itemCode", "item_code", "code"),
         )
         if not mpn or not subscription_id:
+            mapped_mpn = _mapped_mpn(subscription, mpn_mapping)
+            if mapped_mpn and subscription_id:
+                label = _first_nested_value(product or subscription, ("name", "productName", "friendlyName", "planName")) or mapped_mpn
+                normalised.append({"id": str(subscription_id), "mpn": mapped_mpn, "label": str(label)})
             continue
         label = _first_nested_value(product or subscription, ("name", "productName", "friendlyName", "planName")) or mpn
         normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label)})
@@ -103,9 +107,9 @@ def _find_product_record(subscription: dict) -> dict | None:
     return None
 
 
-async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[dict], int]:
+async def _normalise_customer_subscriptions(payload: dict | list, mpn_mapping: str | None = None) -> tuple[list[dict], int]:
     records = _cloudblue_collection(payload)
-    normalised = _normalise_cloudblue_subscriptions(payload)
+    normalised = _normalise_cloudblue_subscriptions(payload, mpn_mapping)
     if normalised or not isinstance(records, list):
         return normalised, len(records) if isinstance(records, list) else 0
 
@@ -148,7 +152,9 @@ async def _normalise_customer_subscriptions(payload: dict | list) -> tuple[list[
         if mpn:
             normalised.append({"id": str(subscription_id), "mpn": str(mpn), "label": str(label or mpn)})
         elif subscription_name:
-            normalised.append({"id": str(subscription_id), "mpn": str(subscription_name), "label": str(subscription_name)})
+            mapped_mpn = _mapped_mpn(subscription, mpn_mapping)
+            if mapped_mpn:
+                normalised.append({"id": str(subscription_id), "mpn": mapped_mpn, "label": str(subscription_name)})
     return normalised, len(records)
 
 
@@ -167,6 +173,22 @@ def _subscription_field_names(records: list) -> list[str]:
 
     collect(records)
     return sorted(names)[:100]
+
+
+def _mapped_mpn(subscription: dict, mapping: str | None) -> str | None:
+    if not mapping:
+        return None
+    name = _first_nested_value(subscription, ("name", "productName", "friendlyName", "planName"))
+    if not name:
+        return None
+    target = _normalise_text(name)
+    for line in mapping.splitlines():
+        if "=" not in line:
+            continue
+        source, mpn = line.split("=", 1)
+        if _normalise_text(source) == target and _is_product_code(mpn.strip()):
+            return mpn.strip()
+    return None
 
 
 def _find_catalogue_product(plan_id: str, subscription: dict, payload: object) -> tuple[object | None, object | None]:
@@ -262,7 +284,7 @@ async def list_cloudblue_subscriptions(customer_id: str, db: Session = Depends(g
     try:
         payload = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
         raw_records = _cloudblue_collection(payload)
-        normalised, raw_count = await _normalise_customer_subscriptions(payload)
+        normalised, raw_count = await _normalise_customer_subscriptions(payload, customer.cloudblue_mpn_mapping)
         response = {"data": normalised, "raw_count": raw_count}
         if raw_count and not normalised:
             response["unresolved_fields"] = _subscription_field_names(raw_records)
@@ -338,7 +360,7 @@ async def request_cloudblue_license_change(
         subscriptions = await vuzion_cloudblue_service.get_subscriptions(customer.cloudblue_customer_id)
     except Exception as exc:
         raise HTTPException(502, f"CloudBlue subscription lookup failed: {exc}")
-    records, _ = await _normalise_customer_subscriptions(subscriptions)
+    records, _ = await _normalise_customer_subscriptions(subscriptions, customer.cloudblue_mpn_mapping)
     valid_selection = False
     for subscription in records:
         subscription_id = str(subscription.get("id") or "")

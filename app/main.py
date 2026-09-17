@@ -66,6 +66,17 @@ def _ensure_cloudblue_customer_schema():
 
 _ensure_cloudblue_customer_schema()
 
+
+def _ensure_cloudblue_mpn_mapping_schema():
+    existing = {column["name"] for column in inspect(engine).get_columns("customers")}
+    if "cloudblue_mpn_mapping" in existing:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE customers ADD COLUMN cloudblue_mpn_mapping TEXT"))
+
+
+_ensure_cloudblue_mpn_mapping_schema()
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="Unified MSP platform: customers, billing (Xero), Microsoft 365 "

@@ -92,6 +92,7 @@
           <div class="mb-2"><label class="form-label">WhatsApp Number (E.164, no +)</label><input class="form-control" id="edit_whatsapp_number" placeholder="447700900123"></div>
           <div class="mb-2"><label class="form-label">Microsoft 365 Tenant ID</label><input class="form-control" id="edit_m365_tenant_id"></div>
           <div class="mb-2"><label class="form-label">CloudBlue Customer ID</label><input class="form-control" id="edit_cloudblue_customer_id" placeholder="ID from Infinigate Marketplace"></div>
+          <div class="mb-2"><label class="form-label">CloudBlue MPN Mapping</label><textarea class="form-control" id="edit_cloudblue_mpn_mapping" rows="3" placeholder="Subscription name=CloudBlue MPN"></textarea></div>
         </form>
       </div>
       <div class="modal-footer">
@@ -202,6 +203,7 @@ function openEditCustomer(c) {
     document.getElementById('edit_whatsapp_number').value = c.whatsapp_number || '';
     document.getElementById('edit_m365_tenant_id').value = c.m365_tenant_id || '';
     document.getElementById('edit_cloudblue_customer_id').value = c.cloudblue_customer_id || '';
+    document.getElementById('edit_cloudblue_mpn_mapping').value = c.cloudblue_mpn_mapping || '';
     if (!editCustomerModal) editCustomerModal = new bootstrap.Modal(document.getElementById('editCustomerModal'));
     editCustomerModal.show();
 }
@@ -218,7 +220,8 @@ async function submitEditCustomer() {
         account_manager: document.getElementById('edit_account_manager').value || null,
         whatsapp_number: document.getElementById('edit_whatsapp_number').value || null,
         m365_tenant_id: document.getElementById('edit_m365_tenant_id').value || null,
-        cloudblue_customer_id: document.getElementById('edit_cloudblue_customer_id').value || null
+        cloudblue_customer_id: document.getElementById('edit_cloudblue_customer_id').value || null,
+        cloudblue_mpn_mapping: document.getElementById('edit_cloudblue_mpn_mapping').value || null
     };
     try {
         const resp = await fetch('/api/customers/' + id, {
