@@ -352,7 +352,7 @@ def link_cloudblue_customer(
     return customer
 
 
-@router.patch("/{customer_id}/cloudblue-mpn-mapping")
+@router.api_route("/{customer_id}/cloudblue-mpn-mapping", methods=["PATCH", "POST"])
 def save_cloudblue_mpn_mapping(
     customer_id: str,
     payload: CloudBlueMpnMappingRequest,

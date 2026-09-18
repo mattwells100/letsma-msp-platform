@@ -263,17 +263,30 @@ async function saveCloudBlueMpnMapping() {
     const result = document.getElementById('cloudBlueLicenseResult');
     const mapping = document.getElementById('cloudBlueMpnMapping').value;
     try {
-        const response = await fetch('/api/customers/{{ customer.id }}/cloudblue-mpn-mapping', {
-            method: 'PATCH',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({mapping})
-        });
+        let response;
+        try {
+            response = await fetch('/api/customers/{{ customer.id }}/cloudblue-mpn-mapping', {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({mapping})
+            });
+        } catch (patchError) {
+            if (patchError instanceof TypeError) {
+                response = await fetch('/api/customers/{{ customer.id }}/cloudblue-mpn-mapping', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mapping})
+                });
+            } else {
+                throw patchError;
+            }
+        }
         const data = await readCloudBlueResponse(response);
         if (!response.ok) throw new Error(data.detail || data.text || 'Unable to save MPN mapping');
         result.innerHTML = '<span class="text-success">MPN mapping saved. Reloading subscriptions...</span>';
         await loadCloudBlueLicenseProducts();
     } catch (error) {
-        result.innerHTML = `<span class="text-danger">${error.message || 'Unable to save MPN mapping'}</span>`;
+        result.innerHTML = `<span class="text-danger">${error.message || 'Unable to save MPN mapping. Check API connectivity and session state.'}</span>`;
     }
 }
 
