@@ -181,7 +181,10 @@ async def place_sales_order(payload: dict) -> dict:
 async def estimate_sales_order(payload: dict) -> dict:
     """Estimate a licence change without placing an order."""
     for attempt in range(2):
-        response = await _authorized_request("POST", "/orders/estimate", json=payload, timeout=105.0)
+        try:
+            response = await _authorized_request("POST", "/orders/estimate", json=payload, timeout=300.0)
+        except httpx.TimeoutException as exc:
+            raise RuntimeError("CloudBlue estimate timed out after 300 seconds") from exc
         if (
             attempt == 0
             and response.status_code == 500
