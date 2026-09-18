@@ -6,8 +6,6 @@ provisioning is enabled.
 """
 from __future__ import annotations
 
-import asyncio
-
 import httpx
 
 from app.config import settings
@@ -189,7 +187,7 @@ async def estimate_sales_order(payload: dict) -> dict:
             and response.status_code == 500
             and "failed to retrieve products from cache" in response.text.lower()
         ):
-            await asyncio.sleep(1)
+            await get_products()
             continue
         _raise_for_status_with_body(response)
         return response.json()
