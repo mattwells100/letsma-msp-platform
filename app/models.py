@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Enum, Date, Numeric, LargeBinary
+    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Enum, Date, Numeric, LargeBinary, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 
@@ -81,6 +81,7 @@ class Customer(Base):
     trading_name = Column(String, nullable=True)
     address = Column(String, nullable=True)
     phone = Column(String, nullable=True)
+    mobile_phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
     account_manager = Column(String, nullable=True)
     status = Column(String, default="Active")  # Active, Onboarding, Offboarded
@@ -117,6 +118,7 @@ class Customer(Base):
     time_entries = relationship("TimeEntry", back_populates="customer", cascade="all, delete-orphan")
     amazon_orders = relationship("AmazonOrder", back_populates="customer")
     cloudblue_license_changes = relationship("CloudBlueLicenseChange", back_populates="customer", cascade="all, delete-orphan")
+    call_interactions = relationship("CallInteraction", back_populates="customer")
 
 
 class Contact(Base):
@@ -625,6 +627,30 @@ class TeamsMessage(Base):
     direction = Column(String, default="inbound")
     body = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CallInteraction(Base):
+    __tablename__ = "call_interactions"
+    __table_args__ = (UniqueConstraint("teams_call_id", name="uq_call_interactions_teams_call_id"),)
+
+    id = Column(String, primary_key=True, default=gen_id)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=True)
+    contact_id = Column(String, ForeignKey("contacts.id"), nullable=True)
+    teams_call_id = Column(String, nullable=False)
+    phone_number = Column(String, nullable=True)
+    direction = Column(String, nullable=False, default="unknown")
+    answered = Column(Boolean, default=False)
+    duration_seconds = Column(Integer, default=0)
+    start_time = Column(DateTime, nullable=True)
+    end_time = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    ticket_id = Column(String, ForeignKey("tickets.id"), nullable=True)
+    transcript_id = Column(String, nullable=True)
+    recording_url = Column(String, nullable=True)
+
+    customer = relationship("Customer", back_populates="call_interactions")
+    contact = relationship("Contact")
+    ticket = relationship("Ticket")
 
 
 # ---------------------------------------------------------------------------

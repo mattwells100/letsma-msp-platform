@@ -22,6 +22,7 @@ _SECRET_NAMES = [
     "XERO-CLIENT-ID", "XERO-CLIENT-SECRET",
     "WHATSAPP-ACCESS-TOKEN", "WHATSAPP-VERIFY-TOKEN",
     "TEAMS-INCOMING-WEBHOOK-URL", "TEAMS-OUTGOING-WEBHOOK-SECRET",
+    "TEAMS-CALLS-TENANT-ID", "TEAMS-CALLS-CLIENT-ID", "TEAMS-CALLS-CLIENT-SECRET",
     "AGENT-API-KEY",
     "HELPDESK-GRAPH-TENANT-ID", "HELPDESK-GRAPH-CLIENT-ID", "HELPDESK-GRAPH-CLIENT-SECRET",
     "ORDERS-GRAPH-TENANT-ID", "ORDERS-GRAPH-CLIENT-ID", "ORDERS-GRAPH-CLIENT-SECRET",
@@ -79,6 +80,10 @@ class Settings:
     TEAMS_BOT_APP_ID: str = os.getenv("TEAMS_BOT_APP_ID", "")
     TEAMS_BOT_APP_SECRET: str = os.getenv("TEAMS_BOT_APP_SECRET", "")
     TEAMS_BOT_TENANT_ID: str = os.getenv("TEAMS_BOT_TENANT_ID", "")
+    TEAMS_CALLS_TENANT_ID: str = os.getenv("TEAMS_CALLS_TENANT_ID", "")
+    TEAMS_CALLS_CLIENT_ID: str = os.getenv("TEAMS_CALLS_CLIENT_ID", "")
+    TEAMS_CALLS_CLIENT_SECRET: str = os.getenv("TEAMS_CALLS_CLIENT_SECRET", "")
+    TEAMS_CALLS_SYNC_ENABLED: bool = os.getenv("TEAMS_CALLS_SYNC_ENABLED", "false").lower() == "true"
 
     # Vuzion/Infinigate CloudBlue Simple API. Provisioning remains disabled
     # until credentials and customer/product mappings are configured.

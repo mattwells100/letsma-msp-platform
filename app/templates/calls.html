@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Calls - Letsma MSP{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h2 class="page-title mb-0">Calls</h2>
+        <div class="text-muted small">Teams Phone call interactions imported from Microsoft Graph.</div>
+    </div>
+    <button id="syncCallsButton" class="btn btn-sm btn-outline-primary" onclick="syncTeamsCalls()">
+        <i class="bi bi-arrow-repeat"></i> Sync Teams Calls
+    </button>
+</div>
+
+<div id="syncCallsResult" class="mb-3"></div>
+
+<div class="card stat-card p-3">
+    <table class="table align-middle">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Caller</th>
+                <th>Customer</th>
+                <th>Direction</th>
+                <th>Answered</th>
+                <th>Duration</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for call in calls %}
+            <tr>
+                <td class="small text-muted">{{ (call.start_time or call.created_at)|ukdatetime('%d %b %Y %H:%M') }}</td>
+                <td>
+                    {% if call.contact %}
+                        {{ call.contact.name }}
+                        {% if call.phone_number %}<div class="small text-muted">{{ call.phone_number }}</div>{% endif %}
+                    {% else %}
+                        {{ call.phone_number or 'Unknown caller' }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if call.customer %}
+                        <a href="/customers/{{ call.customer.id }}" class="text-decoration-none">{{ call.customer.name }}</a>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">Unknown</span>
+                    {% endif %}
+                </td>
+                <td>{{ 'Inbound' if call.direction == 'inbound' else 'Outbound' if call.direction == 'outbound' else 'Unknown' }}</td>
+                <td>
+                    {% if call.answered %}
+                        <span class="badge bg-success">Answered</span>
+                    {% else %}
+                        <span class="badge bg-secondary">Missed</span>
+                    {% endif %}
+                </td>
+                <td>{{ call.duration_seconds|call_duration }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6" class="text-muted">No calls imported yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function syncTeamsCalls() {
+    const button = document.getElementById('syncCallsButton');
+    const result = document.getElementById('syncCallsResult');
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Syncing...';
+    result.innerHTML = '';
+    try {
+        const response = await fetch('/api/calls/sync', {method: 'POST'});
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Sync failed');
+        result.innerHTML = `<div class="alert alert-success py-2 mb-0">Imported ${payload.created} call(s); ${payload.skipped_duplicates} duplicate(s) skipped.</div>`;
+        setTimeout(() => window.location.reload(), 900);
+    } catch (error) {
+        result.innerHTML = `<div class="alert alert-danger py-2 mb-0">Teams call sync failed: ${error.message || error}</div>`;
+    } finally {
+        button.disabled = false;
+        button.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync Teams Calls';
+    }
+}
+</script>
+{% endblock %}

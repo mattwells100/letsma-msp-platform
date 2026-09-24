@@ -30,6 +30,7 @@ def _check_admin_key(x_agent_key: str = Header(default="")):
 def migrate_contacts_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
     """Adds the Microsoft 365 contact-sync columns to the contacts table."""
     statements = [
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS mobile_phone VARCHAR",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS first_name VARCHAR",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_name VARCHAR",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS business_phone VARCHAR",
@@ -74,6 +75,35 @@ def migrate_customer_sla_schema(db: Session = Depends(get_db), _=Depends(_check_
         "ALTER TABLE customers ADD COLUMN IF NOT EXISTS sla_high_hours INTEGER",
         "ALTER TABLE customers ADD COLUMN IF NOT EXISTS sla_normal_hours INTEGER",
         "ALTER TABLE customers ADD COLUMN IF NOT EXISTS sla_low_hours INTEGER",
+    ]
+    for stmt in statements:
+        db.execute(text(stmt))
+    db.commit()
+    return {"ok": True, "statements_applied": statements}
+
+
+@router.post("/migrate-call-interactions-schema")
+def migrate_call_interactions_schema(db: Session = Depends(get_db), _=Depends(_check_admin_key)):
+    statements = [
+        """CREATE TABLE IF NOT EXISTS call_interactions (
+            id VARCHAR PRIMARY KEY,
+            customer_id VARCHAR REFERENCES customers(id),
+            contact_id VARCHAR REFERENCES contacts(id),
+            teams_call_id VARCHAR NOT NULL UNIQUE,
+            phone_number VARCHAR,
+            direction VARCHAR NOT NULL DEFAULT 'unknown',
+            answered BOOLEAN DEFAULT FALSE,
+            duration_seconds INTEGER DEFAULT 0,
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW(),
+            ticket_id VARCHAR REFERENCES tickets(id),
+            transcript_id VARCHAR,
+            recording_url VARCHAR
+        )""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_call_interactions_teams_call_id ON call_interactions(teams_call_id)",
+        "CREATE INDEX IF NOT EXISTS ix_call_interactions_customer_id ON call_interactions(customer_id)",
+        "CREATE INDEX IF NOT EXISTS ix_call_interactions_start_time ON call_interactions(start_time)",
     ]
     for stmt in statements:
         db.execute(text(stmt))

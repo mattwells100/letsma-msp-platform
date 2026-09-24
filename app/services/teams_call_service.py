@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any
+
+import httpx
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.models import CallInteraction, Contact, Customer
+
+GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+
+@dataclass
+class PhoneMatch:
+    customer: Customer | None = None
+    contact: Contact | None = None
+
+
+def normalize_phone_number(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    digits = "".join(character for character in str(raw) if character.isdigit())
+    if digits.startswith("00"):
+        digits = digits[2:]
+    if digits.startswith("0"):
+        digits = "44" + digits[1:]
+    return digits or None
+
+
+def match_contact_by_phone(db: Session, phone_number: str | None) -> PhoneMatch:
+    target = normalize_phone_number(phone_number)
+    if not target:
+        return PhoneMatch()
+
+    contacts = db.query(Contact).all()
+    for contact in contacts:
+        for candidate in (contact.mobile_phone, contact.business_phone, contact.phone):
+            if normalize_phone_number(candidate) == target:
+                return PhoneMatch(customer=contact.customer, contact=contact)
+
+    customers = db.query(Customer).all()
+    for customer in customers:
+        for candidate in (customer.phone, customer.mobile_phone, customer.whatsapp_number):
+            if normalize_phone_number(candidate) == target:
+                return PhoneMatch(customer=customer, contact=None)
+
+    return PhoneMatch()
+
+
+def _teams_calls_setting(name: str, fallback: str = "") -> str:
+    return getattr(settings, f"TEAMS_CALLS_{name}", "") or getattr(settings, f"GRAPH_{name}", fallback)
+
+
+async def _get_teams_calls_token() -> str:
+    tenant_id = _teams_calls_setting("TENANT_ID")
+    client_id = _teams_calls_setting("CLIENT_ID")
+    client_secret = _teams_calls_setting("CLIENT_SECRET")
+    if not tenant_id or not client_id or not client_secret:
+        raise ValueError("Teams call Graph credentials are not configured.")
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "scope": "https://graph.microsoft.com/.default",
+            },
+        )
+        response.raise_for_status()
+        return response.json()["access_token"]
+
+
+def _parse_graph_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+
+
+def _extract_phone(value: Any) -> str | None:
+    if isinstance(value, dict):
+        phone = value.get("phone") or value.get("phoneNumber") or value.get("telephoneNumber")
+        if isinstance(phone, dict):
+            return phone.get("id") or phone.get("number") or phone.get("displayName")
+        if phone:
+            return str(phone)
+        identity = value.get("identity") or value.get("participant") or value.get("user")
+        if identity is not value:
+            return _extract_phone(identity)
+        for child in value.values():
+            found = _extract_phone(child)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _extract_phone(child)
+            if found:
+                return found
+    return None
+
+
+def _extract_participant_phones(record: dict[str, Any]) -> tuple[str | None, str | None]:
+    caller = _extract_phone(record.get("caller") or record.get("organizer") or record.get("from"))
+    callee = _extract_phone(record.get("callee") or record.get("to"))
+
+    if caller and callee:
+        return caller, callee
+
+    participants = record.get("participants_v2") or record.get("participants") or []
+    phones = []
+    if isinstance(participants, dict):
+        participants = participants.get("value", [])
+    if isinstance(participants, list):
+        for participant in participants:
+            phone = _extract_phone(participant)
+            if phone and phone not in phones:
+                phones.append(phone)
+    if not caller and phones:
+        caller = phones[0]
+    if not callee and len(phones) > 1:
+        callee = phones[1]
+    return caller, callee
+
+
+def _call_times(record: dict[str, Any]) -> tuple[datetime | None, datetime | None, int]:
+    start_time = _parse_graph_datetime(record.get("startDateTime"))
+    end_time = _parse_graph_datetime(record.get("endDateTime"))
+    if start_time and end_time:
+        return start_time, end_time, max(0, int((end_time - start_time).total_seconds()))
+    return start_time, end_time, 0
+
+
+def _structure_call_record(record: dict[str, Any], db: Session) -> dict[str, Any]:
+    caller_phone, callee_phone = _extract_participant_phones(record)
+    caller_match = match_contact_by_phone(db, caller_phone)
+    callee_match = match_contact_by_phone(db, callee_phone)
+    start_time, end_time, duration_seconds = _call_times(record)
+
+    if caller_match.customer:
+        matched = caller_match
+        direction = "inbound"
+        phone_number = caller_phone
+    elif callee_match.customer:
+        matched = callee_match
+        direction = "outbound"
+        phone_number = callee_phone
+    else:
+        matched = PhoneMatch()
+        direction = "unknown"
+        phone_number = caller_phone or callee_phone
+
+    return {
+        "teams_call_id": str(record.get("id") or record.get("callId")),
+        "customer_id": matched.customer.id if matched.customer else None,
+        "contact_id": matched.contact.id if matched.contact else None,
+        "phone_number": normalize_phone_number(phone_number) or phone_number,
+        "direction": direction,
+        "answered": duration_seconds > 0 and bool(end_time),
+        "duration_seconds": duration_seconds,
+        "start_time": start_time,
+        "end_time": end_time,
+    }
+
+
+async def get_call_records(since: datetime | None = None) -> list[dict[str, Any]]:
+    token = await _get_teams_calls_token()
+    since = since or datetime.utcnow() - timedelta(minutes=15)
+    filter_value = since.isoformat(timespec="seconds") + "Z"
+    url = f"{GRAPH_BASE}/communications/callRecords?$filter=startDateTime ge {filter_value}&$top=50"
+    headers = {"Authorization": f"Bearer {token}"}
+    records: list[dict[str, Any]] = []
+
+    async with httpx.AsyncClient() as client:
+        while url:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+            records.extend(payload.get("value", []))
+            url = payload.get("@odata.nextLink")
+
+    return records
+
+
+def process_call_record(db: Session, record: dict[str, Any]) -> CallInteraction | None:
+    teams_call_id = str(record.get("id") or record.get("callId") or "")
+    if not teams_call_id:
+        return None
+    existing = db.query(CallInteraction).filter_by(teams_call_id=teams_call_id).first()
+    if existing:
+        return existing
+
+    data = _structure_call_record(record, db)
+    interaction = CallInteraction(**data)
+    db.add(interaction)
+    db.commit()
+    db.refresh(interaction)
+    return interaction
+
+
+async def sync_recent_calls(db: Session, since: datetime | None = None) -> dict[str, Any]:
+    records = await get_call_records(since=since)
+    created = 0
+    skipped = 0
+    interactions: list[CallInteraction] = []
+    for record in records:
+        before = db.query(CallInteraction).filter_by(teams_call_id=str(record.get("id") or record.get("callId") or "")).first()
+        interaction = process_call_record(db, record)
+        if interaction:
+            interactions.append(interaction)
+        if before:
+            skipped += 1
+        elif interaction:
+            created += 1
+    return {"records_found": len(records), "created": created, "skipped_duplicates": skipped, "interaction_ids": [item.id for item in interactions]}

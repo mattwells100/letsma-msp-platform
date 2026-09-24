@@ -30,6 +30,7 @@ from app.routers import admin_technicians
 from app.routers import purchasing_email_ingestion, purchasing_email_admin
 from app.routers import recurring_billing
 from app.routers import teams_bot
+from app.routers import teams_calls
 
 Base.metadata.create_all(bind=engine)
 
@@ -76,6 +77,17 @@ def _ensure_cloudblue_mpn_mapping_schema():
 
 
 _ensure_cloudblue_mpn_mapping_schema()
+
+
+def _ensure_customer_phone_schema():
+    existing = {column["name"] for column in inspect(engine).get_columns("customers")}
+    if "mobile_phone" in existing:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE customers ADD COLUMN mobile_phone VARCHAR"))
+
+
+_ensure_customer_phone_schema()
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -167,6 +179,7 @@ app.include_router(ai_assist.router, dependencies=[Depends(require_login_json)])
 app.include_router(purchasing_email_ingestion.router, dependencies=[Depends(require_login_json)])
 app.include_router(purchasing_email_admin.router)
 app.include_router(recurring_billing.router, dependencies=[Depends(require_manager_or_admin)])
+app.include_router(teams_calls.router, dependencies=[Depends(require_manager_or_admin)])
 
 @app.on_event("startup")
 async def _on_startup():

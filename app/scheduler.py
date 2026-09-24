@@ -26,6 +26,7 @@ from app.database import SessionLocal
 from app.services.email_ingestion_service import poll_and_process_helpdesk_inbox
 from app.services.purchase_email_ingestion_service import poll_and_process_orders_inbox
 from app.services.sla_service import check_sla_breaches
+from app.services.teams_call_service import sync_recent_calls
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -84,9 +85,27 @@ async def _scheduled_sla_breach_job():
         db.close()
 
 
+async def _scheduled_teams_calls_sync_job():
+    if not settings.TEAMS_CALLS_SYNC_ENABLED:
+        return
+    if not (settings.TEAMS_CALLS_TENANT_ID or settings.GRAPH_TENANT_ID):
+        logger.warning("teams_calls_sync is enabled but no Teams calls/Graph tenant is configured - skipping this run.")
+        return
+    db = SessionLocal()
+    try:
+        result = await sync_recent_calls(db)
+        if result["created"] > 0:
+            logger.info("Teams calls sync imported %s call(s): %s", result["created"], result)
+    except Exception as e:
+        logger.error("Teams calls sync failed: %s", e)
+    finally:
+        db.close()
+
+
 def start_scheduler():
     if not scheduler.running:
         scheduler.add_job(_scheduled_helpdesk_poll_job, "interval", minutes=5, id="helpdesk_mailbox_poll")
         scheduler.add_job(_scheduled_orders_poll_job, "interval", minutes=5, id="orders_mailbox_poll")
         scheduler.add_job(_scheduled_sla_breach_job, "interval", minutes=5, id="sla_breach_monitor")
+        scheduler.add_job(_scheduled_teams_calls_sync_job, "interval", minutes=5, id="teams_calls_sync")
         scheduler.start()

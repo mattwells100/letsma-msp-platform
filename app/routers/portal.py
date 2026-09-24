@@ -49,6 +49,17 @@ def ukdatetime(value, fmt="%d %b %Y %H:%M"):
 templates.env.filters["ukdatetime"] = ukdatetime
 
 
+def call_duration(seconds):
+    seconds = int(seconds or 0)
+    minutes, remaining_seconds = divmod(seconds, 60)
+    if minutes:
+        return f"{minutes}m {remaining_seconds:02d}s"
+    return f"{remaining_seconds}s"
+
+
+templates.env.filters["call_duration"] = call_duration
+
+
 class CustomerSLAUpdate(BaseModel):
     plan: str = Field(default="", max_length=100)
     critical_hours: int = Field(ge=1, le=720)
@@ -126,6 +137,11 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
             timeline.append({"at": comment.created_at, "kind": "Internal note" if comment.is_internal_note else "Ticket update", "text": f"{comment.author}: {comment.message}", "href": f"/tickets/{ticket.id}"})
     for message in db.query(models.WhatsAppMessage).filter_by(customer_id=customer_id).all():
         timeline.append({"at": message.created_at, "kind": "WhatsApp", "text": message.body or "WhatsApp message", "href": None})
+    calls = db.query(models.CallInteraction).filter_by(customer_id=customer_id).order_by(models.CallInteraction.start_time.desc()).all()
+    for call in calls:
+        direction = "Incoming" if call.direction == "inbound" else "Outgoing" if call.direction == "outbound" else "Phone"
+        status = "Answered" if call.answered else "Missed"
+        timeline.append({"at": call.start_time or call.created_at, "kind": "Phone Call", "text": f"{direction} call - {status} - Duration: {call_duration(call.duration_seconds)}", "href": "/calls"})
     teams_messages = db.query(models.TeamsMessage).join(models.Ticket, models.TeamsMessage.ticket_id == models.Ticket.id).filter(models.Ticket.customer_id == customer_id).all()
     for message in teams_messages:
         timeline.append({"at": message.created_at, "kind": "Teams", "text": message.body or "Teams message", "href": f"/tickets/{message.ticket_id}" if message.ticket_id else None})
@@ -148,6 +164,21 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
         "timeline": timeline[:100], "customer_health": customer_health, "customer_insights": customer_insights,
         "knowledge_articles": knowledge_articles, "active_page": "customers",
         "sla_defaults": {"critical": 2, "high": 4, "normal": 8, "low": 24},
+    })
+
+
+@router.get("/calls")
+def calls_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
+    calls = (
+        db.query(models.CallInteraction)
+        .order_by(models.CallInteraction.start_time.desc().nullslast(), models.CallInteraction.created_at.desc())
+        .limit(250)
+        .all()
+    )
+    return templates.TemplateResponse("calls.html", {
+        "request": request,
+        "calls": calls,
+        "active_page": "calls",
     })
 
 

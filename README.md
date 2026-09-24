@@ -106,6 +106,22 @@ isn't empty on first run.
    > message response. The legacy `/webhooks/teams` Outgoing Webhook remains
    > available for channel-only deployments.
 
+### 3.4.1 Teams Phone call logging
+1. In the same Entra app registration, add **Application permissions**:
+   `CallRecords.Read.All` and `User.Read.All`, then grant admin consent.
+2. Set `TEAMS_CALLS_TENANT_ID`, `TEAMS_CALLS_CLIENT_ID`, and
+   `TEAMS_CALLS_CLIENT_SECRET` in `.env`. If these are blank, the service falls
+   back to the existing `GRAPH_*` credentials.
+3. For production databases, run `POST /api/admin/migrate-call-interactions-schema`
+   with the `X-Agent-Key` header before first sync. Fresh/local databases create
+   the table automatically on startup.
+4. Set `TEAMS_CALLS_SYNC_ENABLED=true` to import recent call records every five
+   minutes, or use the **Calls** page button to run a manual sync.
+
+Imported calls are deduplicated by Graph call record ID, matched against contact
+and customer phone numbers, and shown on both the **Calls** page and the customer
+activity timeline.
+
 ### 3.5 Endpoint monitoring agent
 ```bash
 # One-time registration on each managed device:
