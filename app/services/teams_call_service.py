@@ -54,6 +54,30 @@ def _teams_calls_setting(name: str, fallback: str = "") -> str:
     return getattr(settings, f"TEAMS_CALLS_{name}", "") or getattr(settings, f"GRAPH_{name}", fallback)
 
 
+def _graph_error_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text.strip() or response.reason_phrase
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        description = payload.get("error_description")
+        if isinstance(error, dict):
+            return error.get("message") or str(error)
+        if error and description:
+            return f"{error}: {description}"
+        if error:
+            return str(error)
+    return str(payload)
+
+
+def _raise_graph_error(response: httpx.Response, context: str) -> None:
+    if response.is_success:
+        return
+    detail = _graph_error_detail(response)
+    raise ValueError(f"{context} failed ({response.status_code}): {detail}")
+
+
 async def _get_teams_calls_token() -> str:
     tenant_id = _teams_calls_setting("TENANT_ID")
     client_id = _teams_calls_setting("CLIENT_ID")
@@ -71,7 +95,7 @@ async def _get_teams_calls_token() -> str:
                 "scope": "https://graph.microsoft.com/.default",
             },
         )
-        response.raise_for_status()
+        _raise_graph_error(response, "Teams calls token request")
         return response.json()["access_token"]
 
 
@@ -177,7 +201,7 @@ async def get_call_records(since: datetime | None = None) -> list[dict[str, Any]
     async with httpx.AsyncClient() as client:
         while url:
             response = await client.get(url, headers=headers)
-            response.raise_for_status()
+            _raise_graph_error(response, "Teams call records request")
             payload = response.json()
             records.extend(payload.get("value", []))
             url = payload.get("@odata.nextLink")

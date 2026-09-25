@@ -7,10 +7,12 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models import CallInteraction, Contact, Customer
 from app.services.teams_call_service import (
+    _graph_error_detail,
     match_contact_by_phone,
     normalize_phone_number,
     process_call_record,
 )
+import httpx
 
 
 def _session():
@@ -20,6 +22,18 @@ def _session():
 
 
 class TeamsCallServiceTests(unittest.TestCase):
+    def test_graph_error_detail_includes_entra_error_description(self):
+        response = httpx.Response(
+            400,
+            json={
+                "error": "invalid_client",
+                "error_description": "AADSTS7000215: Invalid client secret provided.",
+            },
+        )
+
+        self.assertIn("invalid_client", _graph_error_detail(response))
+        self.assertIn("AADSTS7000215", _graph_error_detail(response))
+
     def test_normalize_phone_number_strips_uk_formats(self):
         self.assertEqual(normalize_phone_number("+44 20 1234 5678"), "442012345678")
         self.assertEqual(normalize_phone_number("02012345678"), "442012345678")
