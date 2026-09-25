@@ -64,6 +64,7 @@
                 <th>Direction</th>
                 <th>Answered</th>
                 <th>Duration</th>
+                <th>Ticket</th>
                 <th class="text-end">Action</th>
             </tr>
         </thead>
@@ -95,6 +96,13 @@
                     {% endif %}
                 </td>
                 <td>{{ call.duration_seconds|call_duration }}</td>
+                <td>
+                    {% if call.ticket_id %}
+                        <a href="/tickets/{{ call.ticket_id }}" class="badge bg-light text-dark border text-decoration-none">Open ticket</a>
+                    {% else %}
+                        <span class="text-muted small">-</span>
+                    {% endif %}
+                </td>
                 <td class="text-end">
                     <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#assignCallModal" onclick="openAssignCallModal('{{ call.id }}', '{{ call.customer_id or '' }}', '{{ call.contact_id or '' }}')">
                         <i class="bi bi-person-check"></i> Assign
@@ -102,7 +110,7 @@
                 </td>
             </tr>
         {% else %}
-            <tr><td colspan="7" class="text-muted">No calls match the current filters.</td></tr>
+            <tr><td colspan="8" class="text-muted">No calls match the current filters.</td></tr>
         {% endfor %}
         </tbody>
     </table>

@@ -84,6 +84,9 @@ class Settings:
     TEAMS_CALLS_CLIENT_ID: str = os.getenv("TEAMS_CALLS_CLIENT_ID", "")
     TEAMS_CALLS_CLIENT_SECRET: str = os.getenv("TEAMS_CALLS_CLIENT_SECRET", "")
     TEAMS_CALLS_SYNC_ENABLED: bool = os.getenv("TEAMS_CALLS_SYNC_ENABLED", "false").lower() == "true"
+    TEAMS_CALLS_AUTO_TICKETS_ENABLED: bool = os.getenv("TEAMS_CALLS_AUTO_TICKETS_ENABLED", "false").lower() == "true"
+    TEAMS_CALLS_TICKET_MISSED_CALLS_ENABLED: bool = os.getenv("TEAMS_CALLS_TICKET_MISSED_CALLS_ENABLED", "true").lower() == "true"
+    TEAMS_CALLS_TICKET_MIN_DURATION_SECONDS: int = int(os.getenv("TEAMS_CALLS_TICKET_MIN_DURATION_SECONDS", "0"))
 
     # Vuzion/Infinigate CloudBlue Simple API. Provisioning remains disabled
     # until credentials and customer/product mappings are configured.

@@ -122,6 +122,13 @@ Imported calls are deduplicated by Graph call record ID, matched against contact
 and customer phone numbers, and shown on both the **Calls** page and the customer
 activity timeline.
 
+Sprint 2 call-to-ticket automation is opt-in. Set
+`TEAMS_CALLS_AUTO_TICKETS_ENABLED=true` to create linked helpdesk tickets during
+call import. Missed-call tickets are enabled by default when automation is on;
+set `TEAMS_CALLS_TICKET_MISSED_CALLS_ENABLED=false` to disable them. Set
+`TEAMS_CALLS_TICKET_MIN_DURATION_SECONDS` to a positive number to create tickets
+for calls at or above that duration.
+
 ### 3.5 Endpoint monitoring agent
 ```bash
 # One-time registration on each managed device:

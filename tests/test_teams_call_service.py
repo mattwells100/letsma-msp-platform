@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
-from app.models import CallInteraction, Contact, Customer
+from app.models import CallInteraction, Contact, Customer, Ticket, TicketSource
 from app.services.teams_call_service import (
     _call_records_url,
     _direct_routing_calls_url,
@@ -15,6 +15,7 @@ from app.services.teams_call_service import (
     match_contact_by_phone,
     normalize_phone_number,
     process_call_record,
+    settings,
 )
 import httpx
 
@@ -26,6 +27,16 @@ def _session():
 
 
 class TeamsCallServiceTests(unittest.TestCase):
+    def setUp(self):
+        self._auto_tickets_enabled = settings.TEAMS_CALLS_AUTO_TICKETS_ENABLED
+        self._missed_calls_enabled = settings.TEAMS_CALLS_TICKET_MISSED_CALLS_ENABLED
+        self._min_duration_seconds = settings.TEAMS_CALLS_TICKET_MIN_DURATION_SECONDS
+
+    def tearDown(self):
+        settings.TEAMS_CALLS_AUTO_TICKETS_ENABLED = self._auto_tickets_enabled
+        settings.TEAMS_CALLS_TICKET_MISSED_CALLS_ENABLED = self._missed_calls_enabled
+        settings.TEAMS_CALLS_TICKET_MIN_DURATION_SECONDS = self._min_duration_seconds
+
     def test_graph_error_detail_includes_entra_error_description(self):
         response = httpx.Response(
             400,
@@ -149,3 +160,41 @@ class TeamsCallServiceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             assign_call_interaction(db, interaction.id, customer.id, other_contact.id)
+
+    def test_process_call_record_creates_single_ticket_for_missed_call_when_enabled(self):
+        settings.TEAMS_CALLS_AUTO_TICKETS_ENABLED = True
+        settings.TEAMS_CALLS_TICKET_MISSED_CALLS_ENABLED = True
+        settings.TEAMS_CALLS_TICKET_MIN_DURATION_SECONDS = 0
+        db = _session()
+        record = {
+            "id": "teams-call-missed",
+            "startDateTime": "2026-09-25T09:00:00Z",
+            "caller": {"identity": {"phone": {"id": "+44 7700 900123"}}},
+        }
+
+        first = process_call_record(db, record)
+        second = process_call_record(db, record)
+
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(db.query(Ticket).count(), 1)
+        self.assertEqual(first.ticket_id, db.query(Ticket).first().id)
+        self.assertEqual(db.query(Ticket).first().source, TicketSource.PHONE)
+
+    def test_process_call_record_creates_ticket_for_long_call_threshold(self):
+        settings.TEAMS_CALLS_AUTO_TICKETS_ENABLED = True
+        settings.TEAMS_CALLS_TICKET_MISSED_CALLS_ENABLED = False
+        settings.TEAMS_CALLS_TICKET_MIN_DURATION_SECONDS = 60
+        db = _session()
+        record = {
+            "id": "teams-call-long",
+            "startDateTime": "2026-09-25T09:00:00Z",
+            "endDateTime": "2026-09-25T09:02:00Z",
+            "caller": {"identity": {"phone": {"id": "+44 7700 900123"}}},
+        }
+
+        interaction = process_call_record(db, record)
+        ticket = db.query(Ticket).first()
+
+        self.assertIsNotNone(ticket)
+        self.assertEqual(interaction.ticket_id, ticket.id)
+        self.assertIn("Long", ticket.subject)

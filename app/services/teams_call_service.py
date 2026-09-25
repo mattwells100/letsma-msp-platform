@@ -8,7 +8,8 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import CallInteraction, Contact, Customer
+from app.models import CallInteraction, Contact, Customer, Ticket, TicketPriority, TicketSource, TicketStatus
+from app.services.ticket_numbering import next_ticket_number
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -274,6 +275,75 @@ def assign_call_interaction(db: Session, call_id: str, customer_id: str, contact
     return interaction
 
 
+def _call_ticket_reason(interaction: CallInteraction) -> str | None:
+    if not settings.TEAMS_CALLS_AUTO_TICKETS_ENABLED:
+        return None
+    if settings.TEAMS_CALLS_TICKET_MISSED_CALLS_ENABLED and not interaction.answered:
+        return "missed"
+    threshold = settings.TEAMS_CALLS_TICKET_MIN_DURATION_SECONDS
+    if threshold > 0 and (interaction.duration_seconds or 0) >= threshold:
+        return "long_call"
+    return None
+
+
+def _call_label(interaction: CallInteraction) -> str:
+    if interaction.contact:
+        return interaction.contact.name
+    if interaction.customer:
+        return interaction.customer.name
+    return interaction.phone_number or "unknown caller"
+
+
+def _call_ticket_description(interaction: CallInteraction, reason: str) -> str:
+    status = "Answered" if interaction.answered else "Missed"
+    started = interaction.start_time.strftime("%d %b %Y %H:%M") if interaction.start_time else "Unknown start time"
+    return "\n".join([
+        f"Teams Phone call imported from Microsoft Graph.",
+        f"Reason: {'Missed call' if reason == 'missed' else 'Call duration threshold exceeded'}.",
+        f"Direction: {interaction.direction}.",
+        f"Status: {status}.",
+        f"Phone number: {interaction.phone_number or 'Unknown'}.",
+        f"Duration: {interaction.duration_seconds or 0} seconds.",
+        f"Started: {started}.",
+        f"Teams call ID: {interaction.teams_call_id}.",
+    ])
+
+
+def maybe_create_ticket_for_call(db: Session, interaction: CallInteraction) -> Ticket | None:
+    if interaction.ticket_id:
+        return db.get(Ticket, interaction.ticket_id)
+
+    reason = _call_ticket_reason(interaction)
+    if not reason:
+        return None
+
+    label = _call_label(interaction)
+    if reason == "missed":
+        subject = f"Missed {interaction.direction} call from {label}"
+    else:
+        subject = f"Long {interaction.direction} call with {label}"
+
+    ticket = Ticket(
+        ticket_number=next_ticket_number(db),
+        customer_id=interaction.customer_id,
+        contact_id=interaction.contact_id,
+        subject=subject,
+        description=_call_ticket_description(interaction, reason),
+        status=TicketStatus.NEW,
+        priority=TicketPriority.NORMAL,
+        category="Phone Call",
+        source=TicketSource.PHONE,
+        external_ref=interaction.teams_call_id,
+        reporter_name=interaction.contact.name if interaction.contact else None,
+    )
+    db.add(ticket)
+    db.flush()
+    interaction.ticket_id = ticket.id
+    db.commit()
+    db.refresh(interaction)
+    return ticket
+
+
 def process_call_record(db: Session, record: dict[str, Any]) -> CallInteraction | None:
     record = _normalise_call_record(record)
     teams_call_id = _record_call_id(record)
@@ -281,6 +351,7 @@ def process_call_record(db: Session, record: dict[str, Any]) -> CallInteraction 
         return None
     existing = db.query(CallInteraction).filter_by(teams_call_id=teams_call_id).first()
     if existing:
+        maybe_create_ticket_for_call(db, existing)
         return existing
 
     data = _structure_call_record(record, db)
@@ -288,6 +359,7 @@ def process_call_record(db: Session, record: dict[str, Any]) -> CallInteraction 
     db.add(interaction)
     db.commit()
     db.refresh(interaction)
+    maybe_create_ticket_for_call(db, interaction)
     return interaction
 
 
