@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models import CallInteraction, Contact, Customer
 from app.services.teams_call_service import (
+    _call_records_url,
     _graph_error_detail,
     match_contact_by_phone,
     normalize_phone_number,
@@ -33,6 +34,12 @@ class TeamsCallServiceTests(unittest.TestCase):
 
         self.assertIn("invalid_client", _graph_error_detail(response))
         self.assertIn("AADSTS7000215", _graph_error_detail(response))
+
+    def test_call_records_url_omits_unsupported_top_query_option(self):
+        url = _call_records_url(datetime(2026, 9, 25, 9, 30, 0))
+
+        self.assertIn("$filter=startDateTime ge 2026-09-25T09:30:00Z", url)
+        self.assertNotIn("$top", url)
 
     def test_normalize_phone_number_strips_uk_formats(self):
         self.assertEqual(normalize_phone_number("+44 20 1234 5678"), "442012345678")

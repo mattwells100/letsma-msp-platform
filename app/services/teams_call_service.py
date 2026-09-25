@@ -193,8 +193,7 @@ def _structure_call_record(record: dict[str, Any], db: Session) -> dict[str, Any
 async def get_call_records(since: datetime | None = None) -> list[dict[str, Any]]:
     token = await _get_teams_calls_token()
     since = since or datetime.utcnow() - timedelta(minutes=15)
-    filter_value = since.isoformat(timespec="seconds") + "Z"
-    url = f"{GRAPH_BASE}/communications/callRecords?$filter=startDateTime ge {filter_value}&$top=50"
+    url = _call_records_url(since)
     headers = {"Authorization": f"Bearer {token}"}
     records: list[dict[str, Any]] = []
 
@@ -207,6 +206,11 @@ async def get_call_records(since: datetime | None = None) -> list[dict[str, Any]
             url = payload.get("@odata.nextLink")
 
     return records
+
+
+def _call_records_url(since: datetime) -> str:
+    filter_value = since.isoformat(timespec="seconds") + "Z"
+    return f"{GRAPH_BASE}/communications/callRecords?$filter=startDateTime ge {filter_value}"
 
 
 def process_call_record(db: Session, record: dict[str, Any]) -> CallInteraction | None:
