@@ -252,6 +252,28 @@ def _record_call_id(record: dict[str, Any]) -> str:
     return str(record.get("callId") or record.get("id") or "")
 
 
+def assign_call_interaction(db: Session, call_id: str, customer_id: str, contact_id: str | None = None) -> CallInteraction:
+    interaction = db.get(CallInteraction, call_id)
+    if not interaction:
+        raise ValueError("Call interaction not found")
+
+    customer = db.get(Customer, customer_id)
+    if not customer:
+        raise ValueError("Customer not found")
+
+    contact = None
+    if contact_id:
+        contact = db.query(Contact).filter_by(id=contact_id, customer_id=customer.id).first()
+        if not contact:
+            raise ValueError("Contact not found for selected customer")
+
+    interaction.customer_id = customer.id
+    interaction.contact_id = contact.id if contact else None
+    db.commit()
+    db.refresh(interaction)
+    return interaction
+
+
 def process_call_record(db: Session, record: dict[str, Any]) -> CallInteraction | None:
     record = _normalise_call_record(record)
     teams_call_id = _record_call_id(record)

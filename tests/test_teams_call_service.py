@@ -11,6 +11,7 @@ from app.services.teams_call_service import (
     _direct_routing_calls_url,
     _graph_error_detail,
     _normalise_call_record,
+    assign_call_interaction,
     match_contact_by_phone,
     normalize_phone_number,
     process_call_record,
@@ -118,3 +119,33 @@ class TeamsCallServiceTests(unittest.TestCase):
         self.assertEqual(interaction.customer_id, customer.id)
         self.assertEqual(interaction.direction, "outbound")
         self.assertEqual(interaction.duration_seconds, 42)
+
+    def test_assign_call_interaction_links_customer_and_contact(self):
+        db = _session()
+        customer = Customer(name="ABC Solicitors")
+        contact = Contact(customer=customer, name="John Smith")
+        interaction = CallInteraction(teams_call_id="teams-call-assign", direction="unknown")
+        db.add(customer)
+        db.add(contact)
+        db.add(interaction)
+        db.commit()
+
+        assigned = assign_call_interaction(db, interaction.id, customer.id, contact.id)
+
+        self.assertEqual(assigned.customer_id, customer.id)
+        self.assertEqual(assigned.contact_id, contact.id)
+
+    def test_assign_call_interaction_rejects_contact_from_other_customer(self):
+        db = _session()
+        customer = Customer(name="ABC Solicitors")
+        other_customer = Customer(name="Other Ltd")
+        other_contact = Contact(customer=other_customer, name="Other Person")
+        interaction = CallInteraction(teams_call_id="teams-call-bad-contact", direction="unknown")
+        db.add(customer)
+        db.add(other_customer)
+        db.add(other_contact)
+        db.add(interaction)
+        db.commit()
+
+        with self.assertRaises(ValueError):
+            assign_call_interaction(db, interaction.id, customer.id, other_contact.id)

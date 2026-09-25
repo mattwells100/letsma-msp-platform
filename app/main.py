@@ -179,7 +179,7 @@ app.include_router(ai_assist.router, dependencies=[Depends(require_login_json)])
 app.include_router(purchasing_email_ingestion.router, dependencies=[Depends(require_login_json)])
 app.include_router(purchasing_email_admin.router)
 app.include_router(recurring_billing.router, dependencies=[Depends(require_manager_or_admin)])
-app.include_router(teams_calls.router, dependencies=[Depends(require_manager_or_admin)])
+app.include_router(teams_calls.router, dependencies=[Depends(require_login_json)])
 
 @app.on_event("startup")
 async def _on_startup():

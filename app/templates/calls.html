@@ -13,6 +13,47 @@
 
 <div id="syncCallsResult" class="mb-3"></div>
 
+<form class="card stat-card p-3 mb-3" method="get" action="/calls">
+    <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+            <label class="form-label small">Customer</label>
+            <select class="form-select form-select-sm" name="customer_id">
+                <option value="">All customers</option>
+                {% for customer in customers %}
+                    <option value="{{ customer.id }}" {% if filters.customer_id == customer.id %}selected{% endif %}>{{ customer.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small">Direction</label>
+            <select class="form-select form-select-sm" name="direction">
+                <option value="">All</option>
+                <option value="inbound" {% if filters.direction == 'inbound' %}selected{% endif %}>Inbound</option>
+                <option value="outbound" {% if filters.direction == 'outbound' %}selected{% endif %}>Outbound</option>
+                <option value="unknown" {% if filters.direction == 'unknown' %}selected{% endif %}>Unknown</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small">Status</label>
+            <select class="form-select form-select-sm" name="answered">
+                <option value="">All</option>
+                <option value="answered" {% if filters.answered == 'answered' %}selected{% endif %}>Answered</option>
+                <option value="missed" {% if filters.answered == 'missed' %}selected{% endif %}>Missed</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <div class="form-check mb-1">
+                <input class="form-check-input" type="checkbox" id="unknownOnly" name="unknown_only" value="true" {% if filters.unknown_only %}checked{% endif %}>
+                <label class="form-check-label small" for="unknownOnly">Unknown only</label>
+            </div>
+        </div>
+        <div class="col-md-3 d-flex gap-2 justify-content-md-end">
+            <a class="btn btn-sm btn-outline-secondary" href="/calls"><i class="bi bi-x-lg"></i> Clear</a>
+            <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel"></i> Apply</button>
+        </div>
+    </div>
+</form>
+
 <div class="card stat-card p-3">
     <table class="table align-middle">
         <thead>
@@ -23,6 +64,7 @@
                 <th>Direction</th>
                 <th>Answered</th>
                 <th>Duration</th>
+                <th class="text-end">Action</th>
             </tr>
         </thead>
         <tbody>
@@ -53,12 +95,54 @@
                     {% endif %}
                 </td>
                 <td>{{ call.duration_seconds|call_duration }}</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#assignCallModal" onclick="openAssignCallModal('{{ call.id }}', '{{ call.customer_id or '' }}', '{{ call.contact_id or '' }}')">
+                        <i class="bi bi-person-check"></i> Assign
+                    </button>
+                </td>
             </tr>
         {% else %}
-            <tr><td colspan="6" class="text-muted">No calls imported yet.</td></tr>
+            <tr><td colspan="7" class="text-muted">No calls match the current filters.</td></tr>
         {% endfor %}
         </tbody>
     </table>
+</div>
+
+<div class="modal fade" id="assignCallModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Assign call</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="assignCallId">
+                <div id="assignCallResult" class="mb-3"></div>
+                <div class="mb-3">
+                    <label class="form-label">Customer</label>
+                    <select id="assignCustomerId" class="form-select" onchange="filterAssignContacts()">
+                        <option value="">Select customer</option>
+                        {% for customer in customers %}
+                            <option value="{{ customer.id }}">{{ customer.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Contact</label>
+                    <select id="assignContactId" class="form-select">
+                        <option value="">No contact</option>
+                        {% for contact in contacts %}
+                            <option value="{{ contact.id }}" data-customer-id="{{ contact.customer_id }}">{{ contact.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="assignCall()">Save assignment</button>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -81,6 +165,52 @@ async function syncTeamsCalls() {
     } finally {
         button.disabled = false;
         button.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync Teams Calls';
+    }
+}
+
+function openAssignCallModal(callId, customerId, contactId) {
+    document.getElementById('assignCallId').value = callId;
+    document.getElementById('assignCustomerId').value = customerId || '';
+    document.getElementById('assignContactId').value = contactId || '';
+    document.getElementById('assignCallResult').innerHTML = '';
+    filterAssignContacts();
+}
+
+function filterAssignContacts() {
+    const customerId = document.getElementById('assignCustomerId').value;
+    const contactSelect = document.getElementById('assignContactId');
+    Array.from(contactSelect.options).forEach((option) => {
+        if (!option.value) {
+            option.hidden = false;
+            return;
+        }
+        option.hidden = option.dataset.customerId !== customerId;
+    });
+    const selected = contactSelect.selectedOptions[0];
+    if (selected && selected.hidden) contactSelect.value = '';
+}
+
+async function assignCall() {
+    const callId = document.getElementById('assignCallId').value;
+    const customerId = document.getElementById('assignCustomerId').value;
+    const contactId = document.getElementById('assignContactId').value;
+    const result = document.getElementById('assignCallResult');
+    if (!customerId) {
+        result.innerHTML = '<div class="alert alert-warning py-2 mb-0">Select a customer.</div>';
+        return;
+    }
+    try {
+        const response = await fetch(`/api/calls/${callId}/assign`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({customer_id: customerId, contact_id: contactId || null}),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Assignment failed');
+        result.innerHTML = '<div class="alert alert-success py-2 mb-0">Call assigned.</div>';
+        setTimeout(() => window.location.reload(), 600);
+    } catch (error) {
+        result.innerHTML = `<div class="alert alert-danger py-2 mb-0">Assignment failed: ${error.message || error}</div>`;
     }
 }
 </script>

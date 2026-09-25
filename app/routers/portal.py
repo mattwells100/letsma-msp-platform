@@ -168,16 +168,43 @@ def customer_detail_page(customer_id: str, request: Request, db: Session = Depen
 
 
 @router.get("/calls")
-def calls_page(request: Request, db: Session = Depends(get_db), _=Depends(require_login_page)):
-    calls = (
-        db.query(models.CallInteraction)
-        .order_by(models.CallInteraction.start_time.desc().nullslast(), models.CallInteraction.created_at.desc())
-        .limit(250)
-        .all()
-    )
+def calls_page(
+    request: Request,
+    direction: str | None = None,
+    answered: str | None = None,
+    unknown_only: bool = False,
+    customer_id: str | None = None,
+    db: Session = Depends(get_db),
+    _=Depends(require_login_page),
+):
+    query = db.query(models.CallInteraction)
+    if direction in {"inbound", "outbound", "unknown"}:
+        query = query.filter(models.CallInteraction.direction == direction)
+    if answered == "answered":
+        query = query.filter(models.CallInteraction.answered.is_(True))
+    elif answered == "missed":
+        query = query.filter(models.CallInteraction.answered.is_(False))
+    if unknown_only:
+        query = query.filter(models.CallInteraction.customer_id.is_(None))
+    if customer_id:
+        query = query.filter(models.CallInteraction.customer_id == customer_id)
+    calls = query.order_by(
+        models.CallInteraction.start_time.desc().nullslast(),
+        models.CallInteraction.created_at.desc(),
+    ).limit(250).all()
+    customers = db.query(models.Customer).order_by(models.Customer.name).all()
+    contacts = db.query(models.Contact).order_by(models.Contact.name).all()
     return templates.TemplateResponse("calls.html", {
         "request": request,
         "calls": calls,
+        "customers": customers,
+        "contacts": contacts,
+        "filters": {
+            "direction": direction or "",
+            "answered": answered or "",
+            "unknown_only": unknown_only,
+            "customer_id": customer_id or "",
+        },
         "active_page": "calls",
     })
 
