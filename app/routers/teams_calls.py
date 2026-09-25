@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -8,9 +10,9 @@ router = APIRouter(prefix="/api/calls", tags=["Teams Calls"])
 
 
 @router.post("/sync")
-async def sync_teams_calls(db: Session = Depends(get_db)):
+async def sync_teams_calls(hours: int = Query(default=24, ge=1, le=168), db: Session = Depends(get_db)):
     try:
-        return await sync_recent_calls(db)
+        return await sync_recent_calls(db, since=datetime.utcnow() - timedelta(hours=hours))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:

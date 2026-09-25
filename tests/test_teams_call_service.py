@@ -8,7 +8,9 @@ from app.database import Base
 from app.models import CallInteraction, Contact, Customer
 from app.services.teams_call_service import (
     _call_records_url,
+    _direct_routing_calls_url,
     _graph_error_detail,
+    _normalise_call_record,
     match_contact_by_phone,
     normalize_phone_number,
     process_call_record,
@@ -40,6 +42,16 @@ class TeamsCallServiceTests(unittest.TestCase):
 
         self.assertIn("$filter=startDateTime ge 2026-09-25T09:30:00Z", url)
         self.assertNotIn("$top", url)
+
+    def test_direct_routing_calls_url_uses_function_parameters(self):
+        url = _direct_routing_calls_url(
+            datetime(2026, 9, 25, 8, 0, 0),
+            datetime(2026, 9, 25, 9, 0, 0),
+        )
+
+        self.assertIn("getDirectRoutingCalls", url)
+        self.assertIn("fromDateTime=2026-09-25T08:00:00Z", url)
+        self.assertIn("toDateTime=2026-09-25T09:00:00Z", url)
 
     def test_normalize_phone_number_strips_uk_formats(self):
         self.assertEqual(normalize_phone_number("+44 20 1234 5678"), "442012345678")
@@ -82,3 +94,27 @@ class TeamsCallServiceTests(unittest.TestCase):
         self.assertIsNone(first.contact_id)
         self.assertEqual(first.phone_number, "447700900123")
         self.assertIs(first.answered, True)
+
+    def test_process_direct_routing_row_matches_outbound_callee(self):
+        db = _session()
+        customer = Customer(name="ABC Solicitors")
+        contact = Contact(customer=customer, name="John Smith", mobile_phone="+44 20 1234 5678")
+        db.add(customer)
+        db.add(contact)
+        db.commit()
+        row = {
+            "id": "direct-row-1",
+            "callerNumber": "+44 333 000 0000",
+            "calleeNumber": "02012345678",
+            "startDateTime": "2026-09-25T08:35:00Z",
+            "duration": 42,
+        }
+
+        normalised = _normalise_call_record(row)
+        interaction = process_call_record(db, row)
+
+        self.assertEqual(normalised["callId"], "direct-routing:direct-row-1")
+        self.assertEqual(interaction.contact_id, contact.id)
+        self.assertEqual(interaction.customer_id, customer.id)
+        self.assertEqual(interaction.direction, "outbound")
+        self.assertEqual(interaction.duration_seconds, 42)

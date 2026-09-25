@@ -153,9 +153,16 @@ def _extract_participant_phones(record: dict[str, Any]) -> tuple[str | None, str
 def _call_times(record: dict[str, Any]) -> tuple[datetime | None, datetime | None, int]:
     start_time = _parse_graph_datetime(record.get("startDateTime"))
     end_time = _parse_graph_datetime(record.get("endDateTime"))
+    duration = record.get("duration")
+    if isinstance(duration, int):
+        duration_seconds = duration
+    elif isinstance(duration, str) and duration.isdigit():
+        duration_seconds = int(duration)
+    else:
+        duration_seconds = 0
     if start_time and end_time:
         return start_time, end_time, max(0, int((end_time - start_time).total_seconds()))
-    return start_time, end_time, 0
+    return start_time, end_time, duration_seconds
 
 
 def _structure_call_record(record: dict[str, Any], db: Session) -> dict[str, Any]:
@@ -193,28 +200,61 @@ def _structure_call_record(record: dict[str, Any], db: Session) -> dict[str, Any
 async def get_call_records(since: datetime | None = None) -> list[dict[str, Any]]:
     token = await _get_teams_calls_token()
     since = since or datetime.utcnow() - timedelta(minutes=15)
-    url = _call_records_url(since)
+    until = datetime.utcnow()
     headers = {"Authorization": f"Bearer {token}"}
     records: list[dict[str, Any]] = []
 
     async with httpx.AsyncClient() as client:
-        while url:
-            response = await client.get(url, headers=headers)
-            _raise_graph_error(response, "Teams call records request")
-            payload = response.json()
-            records.extend(payload.get("value", []))
-            url = payload.get("@odata.nextLink")
+        records.extend(await _fetch_graph_collection(client, _call_records_url(since), headers, "Teams call records request"))
+        records.extend(await _fetch_graph_collection(client, _direct_routing_calls_url(since, until), headers, "Teams direct routing calls request"))
 
     return records
 
 
+async def _fetch_graph_collection(client: httpx.AsyncClient, url: str, headers: dict[str, str], context: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    while url:
+        response = await client.get(url, headers=headers)
+        _raise_graph_error(response, context)
+        payload = response.json()
+        records.extend(payload.get("value", []))
+        url = payload.get("@odata.nextLink")
+    return records
+
+
 def _call_records_url(since: datetime) -> str:
-    filter_value = since.isoformat(timespec="seconds") + "Z"
+    filter_value = _graph_datetime_literal(since)
     return f"{GRAPH_BASE}/communications/callRecords?$filter=startDateTime ge {filter_value}"
 
 
+def _direct_routing_calls_url(since: datetime, until: datetime) -> str:
+    from_value = _graph_datetime_literal(since)
+    to_value = _graph_datetime_literal(until)
+    return f"{GRAPH_BASE}/communications/callRecords/getDirectRoutingCalls(fromDateTime={from_value},toDateTime={to_value})"
+
+
+def _graph_datetime_literal(value: datetime) -> str:
+    return value.replace(microsecond=0).isoformat() + "Z"
+
+
+def _normalise_call_record(record: dict[str, Any]) -> dict[str, Any]:
+    if "callerNumber" not in record and "calleeNumber" not in record:
+        return record
+    normalised = dict(record)
+    if not normalised.get("callId"):
+        normalised["callId"] = f"direct-routing:{record.get('id') or record.get('correlationId')}"
+    normalised["caller"] = {"phone": record.get("callerNumber")}
+    normalised["callee"] = {"phone": record.get("calleeNumber")}
+    return normalised
+
+
+def _record_call_id(record: dict[str, Any]) -> str:
+    return str(record.get("callId") or record.get("id") or "")
+
+
 def process_call_record(db: Session, record: dict[str, Any]) -> CallInteraction | None:
-    teams_call_id = str(record.get("id") or record.get("callId") or "")
+    record = _normalise_call_record(record)
+    teams_call_id = _record_call_id(record)
     if not teams_call_id:
         return None
     existing = db.query(CallInteraction).filter_by(teams_call_id=teams_call_id).first()
@@ -235,8 +275,9 @@ async def sync_recent_calls(db: Session, since: datetime | None = None) -> dict[
     skipped = 0
     interactions: list[CallInteraction] = []
     for record in records:
-        before = db.query(CallInteraction).filter_by(teams_call_id=str(record.get("id") or record.get("callId") or "")).first()
-        interaction = process_call_record(db, record)
+        normalised = _normalise_call_record(record)
+        before = db.query(CallInteraction).filter_by(teams_call_id=_record_call_id(normalised)).first()
+        interaction = process_call_record(db, normalised)
         if interaction:
             interactions.append(interaction)
         if before:
